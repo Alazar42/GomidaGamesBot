@@ -9,7 +9,7 @@ async def handle_message_response(update: Update, context: CallbackContext):
     text = update.message.text
 
     if text == "👤 Account":
-        await update.message.reply_contact(phone_number="+251965161472", first_name="Mickyas", last_name="Tesfaye")
+        await update.message.reply_contact(phone_number=update.message.contact.phone_number, first_name=update.message.contact.first_name, last_name=update.message.contact.last_name)
     
     elif text == "🎮 Play":
         # Check if user has shared contact
