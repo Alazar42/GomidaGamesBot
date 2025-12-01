@@ -1,7 +1,7 @@
 from telegram import Update
 from telegram.ext import ContextTypes, CallbackContext, ConversationHandler
-from buttons import initial_menu_markup, unlocked_menu_markup
-from callbacks import handle_message_response
+from .buttons import initial_menu_markup, unlocked_menu_markup
+from .callbacks import handle_message_response
 
 async def start(update: Update, context: CallbackContext) -> None:
     # Clear any existing contact status when starting

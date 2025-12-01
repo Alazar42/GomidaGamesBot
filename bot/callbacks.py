@@ -1,9 +1,9 @@
 from telegram import Update
 from telegram.ext import CallbackContext
-from docs import TERMS_AND_SERVICES
-from games import games
+from .docs import TERMS_AND_SERVICES
+from .games import games
 from urllib.parse import quote
-from buttons import unlocked_menu_markup, initial_menu_markup
+from .buttons import unlocked_menu_markup, initial_menu_markup
 
 async def handle_message_response(update: Update, context: CallbackContext):
     text = update.message.text
