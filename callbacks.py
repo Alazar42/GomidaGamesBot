@@ -63,14 +63,9 @@ async def handle_message_response(update: Update, context: CallbackContext):
             f"👤 <b>Your Account Info</b>\n\n"
             f"• <b>Name:</b> {html.escape(first_name)} {html.escape(last_name)}\n"
             f"• <b>Username:</b> @{html.escape(username)}\n"
-            f"• <b>Telegram ID:</b> <code>{user.id}</code>\n"
             f"• <b>Phone:</b> <code>{html.escape(phone)}</code>\n"
             f"• <b>Global Rank:</b> {rank}\n"
             f"• <b>Score:</b> {score} points\n"
-            f"• <b>Game Levels:</b>\n"
-            f"   🚩 Flags: Level {flags_level}\n"
-            f"   🗺️ Maps: Level {maps_level}\n"
-            f"   👕 Attires: Level {attires_level}\n"
             f"• <b>Contact Shared:</b> {'✅ Yes' if context.user_data.get('contact_shared') else '❌ No'}"
         )
         
