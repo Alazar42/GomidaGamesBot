@@ -35,7 +35,7 @@ app = FastAPI(title="Gomida Games Bot")
 # Global variable to store the application
 bot_application = None
 
-def create_application():
+async def create_application():
     """Create and configure the Telegram bot application"""
     # Get bot token from environment
     BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -63,7 +63,7 @@ def create_application():
     application.add_handler(CommandHandler("start", start))
     
     # Initialize application
-    application.initialize()
+    await application.initialize()
     
     return application
 
@@ -78,8 +78,8 @@ async def on_startup():
     if not WEBHOOK_URL:
         raise ValueError("WEBHOOK_URL environment variable is not set")
     
-    # Create and configure application
-    bot_application = create_application()
+    # Create and configure application - FIX: Added await
+    bot_application = await create_application()
     
     # Get bot info
     bot = await bot_application.bot.get_me()
@@ -135,6 +135,31 @@ async def root():
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy"}
+
+@app.get("/set_webhook")
+async def set_webhook():
+    """Manually set webhook"""
+    global bot_application
+    if not bot_application:
+        return {"error": "Bot not initialized"}
+    
+    WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+    if not WEBHOOK_URL:
+        return {"error": "WEBHOOK_URL not set"}
+    
+    webhook_url = f"{WEBHOOK_URL}/webhook"
+    result = await bot_application.bot.set_webhook(webhook_url)
+    return {"success": True, "webhook_url": webhook_url, "result": result}
+
+@app.get("/delete_webhook")
+async def delete_webhook():
+    """Delete webhook"""
+    global bot_application
+    if not bot_application:
+        return {"error": "Bot not initialized"}
+    
+    result = await bot_application.bot.delete_webhook()
+    return {"success": True, "result": result}
 
 if __name__ == "__main__":
     import uvicorn

@@ -1,58 +1,66 @@
 #!/usr/bin/env python3
 """
-Local development script for running the bot with polling.
-For production on Vercel, use the FastAPI version in api/bot.py
+Run bot in polling mode for local testing
 """
 import os
+import sys
 import asyncio
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from dotenv import load_dotenv
+load_dotenv()
+
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     MessageHandler,
     filters,
-    ConversationHandler,
     CallbackQueryHandler
 )
-from .commands import start, stop
-from .callbacks import (
+
+from bot.commands import start, stop
+from bot.callbacks import (
     handle_message_response,
     handle_contact_shared,
     handle_callback_query
 )
-from dotenv import load_dotenv
-
-load_dotenv()
 
 async def main():
-    """Run the bot in polling mode for local development"""
-    # Get bot token
+    """Run bot in polling mode"""
     BOT_TOKEN = os.getenv("BOT_TOKEN")
     if not BOT_TOKEN:
-        raise ValueError("Please set BOT_TOKEN in your .env file")
+        print("❌ ERROR: BOT_TOKEN not found")
+        print("Create .env file with: BOT_TOKEN=your_token_here")
+        return
     
     # Create application
-    application = ApplicationBuilder().token(BOT_TOKEN).build()
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
     
-    # Set up handlers
-    response_handler = MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message_response)
-    contact_handler = MessageHandler(filters.CONTACT, handle_contact_shared)
-    
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
-        states={},
-        fallbacks=[CommandHandler("stop", stop)],
-    )
+    # IMPORTANT: Delete any existing webhook first
+    await app.bot.delete_webhook()
+    print("✅ Webhook removed - now using polling")
     
     # Add handlers
-    application.add_handler(conv_handler)
-    application.add_handler(response_handler)
-    application.add_handler(contact_handler)
-    application.add_handler(CallbackQueryHandler(handle_callback_query))
-    application.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("stop", stop))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message_response))
+    app.add_handler(MessageHandler(filters.CONTACT, handle_contact_shared))
+    app.add_handler(CallbackQueryHandler(handle_callback_query))
     
-    # Run the bot
-    print("Gomida Games Bot is Running ✔ (Polling Mode)")
-    await application.run_polling()
+    print("🚀 Gomida Games Bot Started!")
+    print("📱 Go to Telegram and send /start to @adwa1888bot")
+    print("⏳ Polling for updates...")
+    
+    # Run polling
+    await app.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Windows compatibility
+    if sys.platform == 'win32':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n👋 Bot stopped")
