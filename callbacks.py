@@ -7,9 +7,26 @@ from buttons import unlocked_menu_markup, initial_menu_markup
 
 async def handle_message_response(update: Update, context: CallbackContext):
     text = update.message.text
+    user = update.effective_user
 
     if text == "👤 Account":
-        await update.message.reply_contact(phone_number=update.message.contact.phone_number, first_name=update.message.contact.first_name, last_name=update.message.contact.last_name)
+
+        phone = context.user_data.get("user_phone", "Not shared")
+        first_name = context.user_data.get("user_first_name", user.first_name)
+        last_name = context.user_data.get("user_last_name", user.last_name)
+        username = user.username or "No username"
+
+        # Build account info text
+        account_info = (
+            f"👤 **Your Account Info**\n\n"
+            f"• **Name:** {first_name} {last_name or ''}\n"
+            f"• **Username:** @{username}\n"
+            f"• **Telegram ID:** `{user.id}`\n"
+            f"• **Phone:** `{phone}`\n"
+        )
+
+        await update.message.reply_markdown_v2(account_info)
+        return
     
     elif text == "🎮 Play":
         # Check if user has shared contact
