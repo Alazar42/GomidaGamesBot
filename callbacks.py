@@ -88,7 +88,7 @@ async def handle_message_response(update: Update, context: CallbackContext):
     elif text == "✉️ Invite":
         await update.message.reply_text("Share this link to invite friends: https://t.me/adwa1888bot")
     
-    elif text == "👥🏅 Refferal Leaderboard":
+    elif text == "👥🏅 Leaderboard":
         await show_leaderboard(update, context)
     
     elif text == "📜Terms & Conditions":
@@ -163,9 +163,9 @@ async def show_leaderboard(update: Update, context: CallbackContext):
         is_current_user = user.get('id') == current_user.get('id')
         
         if is_current_user:
-            leaderboard_text += f"{position_emoji} <b>@{username} - {score} pts 👈 YOU</b>\n"
+            leaderboard_text += f"{position_emoji} <b>{username} - {score} pts 👈 YOU</b>\n"
         else:
-            leaderboard_text += f"{position_emoji} @{username} - {score} pts\n"
+            leaderboard_text += f"{position_emoji} {username} - {score} pts\n"
     
     # Add user's own position if not in top 10
     current_user = context.user_data.get('api_user', {})
