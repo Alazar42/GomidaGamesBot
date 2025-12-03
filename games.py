@@ -7,11 +7,11 @@ games = [
     {
         "name":"Climate Game",
         "short_name": "climategame",
-        "url": "https://climate-app-react.vercel.app/"
+        "url": "https://climate-game-nu.vercel.app/"
     },
     {
         "name": "Match Africa",
         "short_name": "matchafrica",
-        "url": "https://climate-game-nu.vercel.app/"
+        "url": "https://match-africa-host.vercel.app/"
     }
 ]
