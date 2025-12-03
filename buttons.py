@@ -37,6 +37,6 @@ unlocked_menu_keyboard = [
     ]
 ]
 
-regular_menu_markup = ReplyKeyboardMarkup(regular_menu_keyboard, resize_keyboard=True)
-initial_menu_markup = ReplyKeyboardMarkup(initial_menu_keyboard, resize_keyboard=True)
-unlocked_menu_markup = ReplyKeyboardMarkup(unlocked_menu_keyboard, resize_keyboard=True)
+regular_menu_markup = ReplyKeyboardMarkup(regular_menu_keyboard)
+initial_menu_markup = ReplyKeyboardMarkup(initial_menu_keyboard)
+unlocked_menu_markup = ReplyKeyboardMarkup(unlocked_menu_keyboard)

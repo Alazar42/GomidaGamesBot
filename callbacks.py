@@ -86,7 +86,7 @@ async def handle_message_response(update: Update, context: CallbackContext):
             await update.message.reply_game(game_short_name=game["short_name"])
     
     elif text == "✉️ Invite":
-        await update.message.reply_text("Share this link to invite friends: https://t.me/adwa1888bot")
+        await update.message.reply_text("Share this link to invite friends: https://t.me/houseofchewataBot")
     
     elif text == "👥🏅 Leaderboard":
         await show_leaderboard(update, context)
