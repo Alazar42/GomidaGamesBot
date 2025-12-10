@@ -3,7 +3,7 @@ import os
 import logging
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ConversationHandler
 from dotenv import load_dotenv
-from commands import notify_test, start, stop, refresh
+from commands import groupid, notify_test, start, stop, refresh
 from callbacks import handle_message_response, handle_contact_shared, handle_callback_query
 
 logging.basicConfig(

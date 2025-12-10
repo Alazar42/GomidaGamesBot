@@ -18,9 +18,6 @@ regular_menu_keyboard = [
 initial_menu_keyboard = [
     [
         KeyboardButton("📞 Share Contact", request_contact=True)
-    ],
-    [
-        KeyboardButton("Skip Contact")
     ]
 ]
 

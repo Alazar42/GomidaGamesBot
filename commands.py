@@ -38,18 +38,21 @@ async def send_registration_notification(bot, new_user: dict, context: dict = No
     
     # Extract user information
     user_id = new_user.get('id', 'N/A')
-    username = new_user.get('username', 'No username')
+    username = new_user.get('username', '')
     phone = new_user.get('phone', '')
-    first_name = new_user.get('first_name', '')
-    last_name = new_user.get('last_name', '')
     
-    # Format user's full name
-    full_name = f"{first_name} {last_name}".strip() if first_name or last_name else "No name"
+    
+    # Get username for display
+    display_username = f"@{username}" if username else "No username"
     
     # Determine if this is a new registration or contact update
     event_type = "New Registration"
     if context and context.get('contact_shared'):
         event_type = "Contact Shared"
+    if context and context.get('returning_user'):
+        event_type = "Returning User"
+    if context and context.get('test'):
+        event_type = "TEST - " + event_type
     
     # Current time
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -59,8 +62,7 @@ async def send_registration_notification(bot, new_user: dict, context: dict = No
         f"🎮 *{event_type.upper()}!*\n\n"
         f"👤 *User Information:*\n"
         f"• *ID:* `{user_id}`\n"
-        f"• *Name:* {full_name}\n"
-        f"• *Username:* @{username if username != 'No username' else 'N/A'}\n"
+        f"• *Username:* {display_username}\n"
         f"• *Phone:* `{phone if phone else 'Not shared yet'}`\n"
         f"• *Event:* {event_type}\n"
         f"• *Time:* {current_time}\n\n"
@@ -72,12 +74,14 @@ async def send_registration_notification(bot, new_user: dict, context: dict = No
             message += "✅ *Contact has been shared!*\n"
         if context.get('api_response'):
             message += "📊 *User saved to database*\n"
+        if context.get('returning_user'):
+            message += "↩️ *Returning user*\n"
     
     message += "\n#NewUser #Registration #GomidaGames"
     
     try:
         # Send message to admin group
-        await bot.send_message(
+        sent_message = await bot.send_message(
             chat_id=admin_group_id,
             text=message,
             parse_mode='Markdown'
@@ -89,10 +93,10 @@ async def send_registration_notification(bot, new_user: dict, context: dict = No
             f"📋 *User Details for Records:*\n\n"
             f"```\n"
             f"User ID: {user_id}\n"
-            f"Username: @{username}\n"
-            f"Name: {full_name}\n"
+            f"Username: {username or 'No username'}\n"
             f"Phone: {phone if phone else 'Not shared'}\n"
             f"Registered: {current_time}\n"
+            f"Event: {event_type}\n"
             f"```\n\n"
             f"#UserID{user_id}"
         )
@@ -103,10 +107,13 @@ async def send_registration_notification(bot, new_user: dict, context: dict = No
             parse_mode='Markdown'
         )
         
+        return sent_message
+        
     except Exception as e:
         logger.error(f"❌ Failed to send notification to group {admin_group_id}: {e}")
         # Fallback: log the notification
         logger.info(f"📨 Would have sent to group {admin_group_id}: {message}")
+        return None
 
 async def start(update: Update, context: CallbackContext) -> None:
     user = update.effective_user
@@ -122,11 +129,30 @@ async def start(update: Update, context: CallbackContext) -> None:
                 context.user_data['api_user'] = existing_user
                 context.user_data['contact_shared'] = True
                 
+                # Update user with current Telegram info (in case username changed)
+                update_data = {
+                    "id": user.id,
+                    "username": user.username or f"user_{user.id}",
+                    "phone": existing_user.get('phone', ''),
+                    "score": existing_user.get('score', 0),
+                    "flags_level": existing_user.get('flags_level', 1),
+                    "maps_level": existing_user.get('maps_level', 1),
+                    "attires_level": existing_user.get('attires_level', 1),
+                    "flags_stars": existing_user.get('flags_stars', {}),
+                    "maps_stars": existing_user.get('maps_stars', {}),
+                    "attires_stars": existing_user.get('attires_stars', {})
+                }
+                
+                # Update user in backend
+                updated_user = await update_user(user.id, update_data)
+                if updated_user:
+                    context.user_data['api_user'] = updated_user
+                
                 # Notify group about returning user
                 await send_registration_notification(
                     bot=context.bot,
-                    new_user=existing_user,
-                    context={'contact_shared': True, 'returning_user': True}
+                    new_user=context.user_data['api_user'],
+                    context={'contact_shared': True, 'returning_user': True, 'api_response': True}
                 )
                 
                 await update.message.reply_text(
@@ -137,7 +163,7 @@ async def start(update: Update, context: CallbackContext) -> None:
                 context.user_data['api_user'] = existing_user
                 context.user_data['contact_shared'] = False
                 await update.message.reply_text(
-                    f"Welcome back {user.first_name}! 👋\n\n"
+                    f"Welcome back {user.username or 'there'}! 👋\n\n"
                     "Would you like to share your contact for a better experience?",
                     reply_markup=initial_menu_markup
                 )
@@ -147,8 +173,6 @@ async def start(update: Update, context: CallbackContext) -> None:
             user_data = {
                 "id": user.id,  # Using Telegram ID as user ID
                 "username": user.username or f"user_{user.id}",
-                "first_name": user.first_name or "",
-                "last_name": user.last_name or "",
                 "phone": "",  # Empty phone initially
                 "score": 0,
                 "flags_level": 1,
@@ -174,9 +198,13 @@ async def start(update: Update, context: CallbackContext) -> None:
                     context={'contact_shared': False, 'api_response': True}
                 )
                 
+                welcome_message = f"Welcome to Gomida Games"
+                if user.username:
+                    welcome_message += f", {user.username}"
+                welcome_message += "! 🎉\n\nWould you like to share your contact for a better experience?"
+                
                 await update.message.reply_text(
-                    f"Welcome to Gomida Games, {user.first_name}! 🎉\n\n"
-                    "Would you like to share your contact for a better experience?",
+                    welcome_message,
                     reply_markup=initial_menu_markup
                 )
             else:
@@ -192,18 +220,22 @@ async def start(update: Update, context: CallbackContext) -> None:
                     context={'contact_shared': False, 'api_response': False}
                 )
                 
+                welcome_message = f"Welcome to Gomida Games"
+                if user.username:
+                    welcome_message += f", {user.username}"
+                welcome_message += "! 🎮\n\nNote: Some features might be limited due to server connection."
+                
                 await update.message.reply_text(
-                    f"Welcome to Gomida Games, {user.first_name}! 🎮\n\n"
-                    "Note: Some features might be limited due to server connection.",
+                    welcome_message,
                     reply_markup=regular_menu_markup
                 )
                 
     except Exception as e:
         logger.error(f"❌ Error in start command for user {user.id}: {e}")
+        welcome_message = "Welcome to Gomida Games! 🎮\n\nThere was an issue connecting to our servers.\nYou can still use basic features."
+        
         await update.message.reply_text(
-            "Welcome to Gomida Games! 🎮\n\n"
-            "There was an issue connecting to our servers.\n"
-            "You can still use basic features.",
+            welcome_message,
             reply_markup=regular_menu_markup
         )
 
@@ -229,6 +261,14 @@ async def refresh(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 "✅ Your data has been refreshed from the server!"
             )
+            
+            # Notify about refresh (optional)
+            # await send_registration_notification(
+            #     bot=context.bot,
+            #     new_user=existing_user,
+            #     context={'contact_shared': bool(existing_user.get('phone')), 'refresh': True}
+            # )
+            
         else:
             await update.message.reply_text(
                 "❌ User not found in server. Please use /start to create an account."
@@ -249,42 +289,63 @@ async def notify_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ No admin group ID configured. Set ADMIN_GROUP_ID in .env")
         return
     
-    # Create test user data
-    test_user_data = {
-        "id": user.id,
-        "username": user.username or f"test_user_{user.id}",
-        "first_name": user.first_name or "Test",
-        "last_name": user.last_name or "User",
-        "phone": "+251987654321",
-        "score": 1000,
-        "flags_level": 5,
-        "maps_level": 3,
-        "attires_level": 2
-    }
+    # Create test user data with different scenarios
+    test_scenarios = [
+        {
+            "name": "Full info user",
+            "data": {
+                "id": 999999991,
+                "username": "test_user_full",
+                "phone": "+251911223344",
+                "score": 1000,
+                "flags_level": 5,
+                "maps_level": 3,
+                "attires_level": 2
+            }
+        },
+        {
+            "name": "First name only",
+            "data": {
+                "id": 999999992,
+                "username": "test_firstname",
+                "phone": "",
+                "score": 500,
+                "flags_level": 2,
+                "maps_level": 1,
+                "attires_level": 1
+            }
+        },
+        {
+            "name": "No name user",
+            "data": {
+                "id": 999999993,
+                "username": "test_noname",
+                "phone": "+251955667788",
+                "score": 250,
+                "flags_level": 1,
+                "maps_level": 1,
+                "attires_level": 1
+            }
+        }
+    ]
     
     await update.message.reply_text(
         f"📱 Testing group notification system...\n"
         f"• Admin Group ID: {admin_group_id}\n"
-        f"• Test user: @{user.username or user.first_name}\n\n"
+        f"• Test user: @{user.username or 'No Username'}\n\n"
         "Sending test notifications to admin group..."
     )
     
-    # Test 1: New registration
-    await send_registration_notification(
-        bot=context.bot,
-        new_user=test_user_data,
-        context={'contact_shared': False, 'api_response': True, 'test': True}
-    )
+    # Send test notifications
+    for i, scenario in enumerate(test_scenarios, 1):
+        await send_registration_notification(
+            bot=context.bot,
+            new_user=scenario['data'],
+            context={'contact_shared': bool(scenario['data']['phone']), 'api_response': True, 'test': True}
+        )
+        logger.info(f"✅ Test scenario {i} sent: {scenario['name']}")
     
-    # Test 2: Contact shared
-    test_user_data['phone'] = '+251912345678'
-    await send_registration_notification(
-        bot=context.bot,
-        new_user=test_user_data,
-        context={'contact_shared': True, 'api_response': True, 'test': True}
-    )
-    
-    await update.message.reply_text("✅ Test notifications sent to admin group!")
+    await update.message.reply_text("✅ All test notifications sent to admin group!")
 
 # Command to get group ID
 async def groupid(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -297,6 +358,8 @@ async def groupid(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"• *Group ID:* `{chat.id}`\n"
             f"• *Group Title:* {chat.title}\n"
             f"• *Group Type:* {chat.type}\n\n"
+            f"🔧 *Add this ID to ADMIN_GROUP_ID in .env:*\n"
+            f"`ADMIN_GROUP_ID={chat.id}`"
         )
         await update.message.reply_text(message, parse_mode='Markdown')
     else:
@@ -308,3 +371,23 @@ async def groupid(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "3. Run /groupid in the group to get the ID\n"
             "4. Add that ID to ADMIN_GROUP_ID in .env file"
         )
+
+# Command to get user ID
+async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show the user's Telegram ID"""
+    user = update.effective_user
+    
+    # Get current user's data from context
+    api_user = context.user_data.get('api_user', {})
+    phone = api_user.get('phone', 'Not shared')
+    
+    
+    message = (
+        f"👤 *Your Telegram Info:*\n\n"
+        f"• *ID:* `{user.id}`\n"
+        f"• *Username:* @{user.username if user.username else 'No username'}\n"
+        f"• *Phone:* `{phone}`\n\n"
+        f"🔧 *This ID can be added to ADMIN_USER_IDS if needed*"
+    )
+    
+    await update.message.reply_text(message, parse_mode='Markdown')
