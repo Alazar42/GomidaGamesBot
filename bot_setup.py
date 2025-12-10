@@ -3,7 +3,7 @@ import os
 import logging
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ConversationHandler
 from dotenv import load_dotenv
-from commands import start, stop, refresh
+from commands import notify_test, start, stop, refresh
 from callbacks import handle_message_response, handle_contact_shared, handle_callback_query
 
 logging.basicConfig(
@@ -41,5 +41,6 @@ application.add_handler(conv_handler)
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message_response))
 application.add_handler(MessageHandler(filters.CONTACT, handle_contact_shared))
 application.add_handler(CallbackQueryHandler(handle_callback_query))
+application.add_handler(CommandHandler("notifytest", notify_test))
 
 print("✅ Gomida Games Bot setup complete!")

@@ -318,3 +318,57 @@ async def handle_callback_query(update: Update, context: CallbackContext):
     else:
         # Handle other callback queries if needed
         await query.answer()
+
+from commands import send_registration_notification
+
+async def handle_contact_shared(update: Update, context: CallbackContext):
+    """Handle when user shares their contact"""
+    contact = update.message.contact
+    user = update.effective_user
+    
+    # Update user data in context
+    context.user_data['contact_shared'] = True
+    context.user_data['user_phone'] = contact.phone_number
+    
+    # Update user in backend API
+    api_user = context.user_data.get('api_user', {})
+    user_id = api_user.get('id', user.id)
+    
+    update_data = {
+        "id": user_id,
+        "username": api_user.get('username') or user.username or f"user_{user.id}",
+        "first_name": user.first_name or "",
+        "last_name": user.last_name or "",
+        "phone": contact.phone_number,
+        "score": api_user.get('score', 0),
+        "flags_level": api_user.get('flags_level', 1),
+        "maps_level": api_user.get('maps_level', 1),
+        "attires_level": api_user.get('attires_level', 1),
+        "flags_stars": api_user.get('flags_stars', {}),
+        "maps_stars": api_user.get('maps_stars', {}),
+        "attires_stars": api_user.get('attires_stars', {})
+    }
+    
+    # Call API to update user
+    updated_user = await update_user(user_id, update_data)
+    api_success = bool(updated_user)
+    
+    if updated_user:
+        context.user_data['api_user'] = updated_user
+    else:
+        # Fallback: use update_data if API failed
+        context.user_data['api_user'] = update_data
+    
+    # ✅ Send notification to admin group about contact update
+    await send_registration_notification(
+        bot=context.bot,
+        new_user=context.user_data['api_user'],
+        context={'contact_shared': True, 'api_response': api_success}
+    )
+    
+    await update.message.reply_text(
+        f"✅ Thank you {contact.first_name}!\n\n"
+        "Your contact has been saved successfully!\n"
+        "You now have access to all features!",
+        reply_markup=unlocked_menu_markup
+    )
