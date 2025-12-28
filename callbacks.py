@@ -1,5 +1,5 @@
 # callbacks.py
-from telegram import Update
+from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
 from docs import TERMS_AND_SERVICES
 from games import games
@@ -8,9 +8,17 @@ from buttons import unlocked_menu_markup, initial_menu_markup, regular_menu_mark
 from api_client import update_user, create_user, get_leaderboard
 import html
 
+# Constants for leaderboard pagination
+LEADERBOARD_PAGE_SIZE = 15  # Users per page (increased from 10)
+
 async def handle_message_response(update: Update, context: CallbackContext):
     text = update.message.text
     user = update.effective_user
+    
+    # Check if we're in contact selection mode
+    if text in ["📱 Select Contacts", "Cancel"]:
+        await handle_contact_selection(update, context)
+        return
     
     # Ensure user exists in context
     if 'api_user' not in context.user_data:
@@ -86,10 +94,12 @@ async def handle_message_response(update: Update, context: CallbackContext):
             await update.message.reply_game(game_short_name=game["short_name"])
     
     elif text == "✉️ Invite":
-        await update.message.reply_text("Share this link to invite friends: https://t.me/houseofchewataBot")
+        # Jump directly to contact sharing
+        await jump_to_contact_invite(update, context)
     
     elif text == "👥🏅 Leaderboard":
-        await show_leaderboard(update, context)
+        # Start with page 1
+        await show_leaderboard(update, context, page=1)
     
     elif text == "📜Terms & Conditions":
         await update.message.reply_markdown_v2(TERMS_AND_SERVICES)
@@ -118,8 +128,8 @@ async def handle_message_response(update: Update, context: CallbackContext):
                 reply_markup=regular_menu_markup
             )
 
-async def show_leaderboard(update: Update, context: CallbackContext):
-    """Display the leaderboard from API"""
+async def show_leaderboard(update: Update, context: CallbackContext, page: int = 1):
+    """Display paginated leaderboard from API"""
     # Show loading message
     loading_msg = await update.message.reply_text("🏆 Fetching leaderboard...")
     
@@ -134,29 +144,38 @@ async def show_leaderboard(update: Update, context: CallbackContext):
         await loading_msg.edit_text("🏆 Leaderboard is empty. Be the first to score points!")
         return
     
-    # Format leaderboard
-    leaderboard_text = "<b>🏆 Global Leaderboard</b>\n\n"
+    total_users = len(leaderboard_data)
+    total_pages = (total_users + LEADERBOARD_PAGE_SIZE - 1) // LEADERBOARD_PAGE_SIZE
     
-    # Show top 10 or all if less than 10
-    display_count = min(10, len(leaderboard_data))
+    # Ensure page is within valid range
+    page = max(1, min(page, total_pages))
     
-    # Emojis for top 3 positions
+    # Calculate start and end indices for current page
+    start_idx = (page - 1) * LEADERBOARD_PAGE_SIZE
+    end_idx = min(start_idx + LEADERBOARD_PAGE_SIZE, total_users)
+    
+    # Format leaderboard header
+    leaderboard_text = f"<b>🏆 Global Leaderboard</b>\n"
+    leaderboard_text += f"<i>Page {page}/{total_pages} • {total_users} players</i>\n\n"
+    
+    # Emojis for positions
     position_emojis = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
     
-    for i in range(display_count):
+    for i in range(start_idx, end_idx):
         user = leaderboard_data[i]
         username = user.get('username', 'Unknown')
         score = user.get('score', 0)
+        position = i + 1
         
         # Truncate long usernames
         if len(username) > 15:
             username = username[:12] + "..."
         
         # Get appropriate emoji for position
-        if i < len(position_emojis):
-            position_emoji = position_emojis[i]
+        if position <= 10:
+            position_emoji = position_emojis[position - 1]
         else:
-            position_emoji = f"{i+1}."
+            position_emoji = f"{position}."
         
         # Highlight current user
         current_user = context.user_data.get('api_user', {})
@@ -167,7 +186,7 @@ async def show_leaderboard(update: Update, context: CallbackContext):
         else:
             leaderboard_text += f"{position_emoji} {username} - {score} pts\n"
     
-    # Add user's own position if not in top 10
+    # Add user's own position if not on current page
     current_user = context.user_data.get('api_user', {})
     if current_user:
         user_id = current_user.get('id')
@@ -180,13 +199,125 @@ async def show_leaderboard(update: Update, context: CallbackContext):
                 user_position = i + 1
                 break
         
-        if user_position and user_position > 10:
+        if user_position and (user_position < start_idx + 1 or user_position > end_idx):
             leaderboard_text += f"\n<b>Your Position:</b> #{user_position} - {user_score} pts"
     
     # Add footer
-    leaderboard_text += "\n\nPlay more games to climb the ranks! 🎮"
+    leaderboard_text += "\nPlay more games to climb the ranks! 🎮"
     
-    await loading_msg.edit_text(leaderboard_text, parse_mode='HTML')
+    # Create pagination buttons
+    keyboard = []
+    
+    # Previous button (only if not on first page)
+    if page > 1:
+        keyboard.append(InlineKeyboardButton("◀️ Previous", callback_data=f"leaderboard_page_{page-1}"))
+    
+    # Refresh button
+    keyboard.append(InlineKeyboardButton("🔄 Refresh", callback_data=f"leaderboard_page_{page}"))
+    
+    # Next button (only if not on last page)
+    if page < total_pages:
+        keyboard.append(InlineKeyboardButton("Next ▶️", callback_data=f"leaderboard_page_{page+1}"))
+    
+    # Add jump to my position button if user is in leaderboard
+    if current_user and user_position:
+        keyboard.append(InlineKeyboardButton("📍 My Rank", callback_data=f"leaderboard_jump_{user_position}"))
+    
+    reply_markup = InlineKeyboardMarkup([keyboard]) if keyboard else None
+    
+    # Edit the loading message with leaderboard
+    await loading_msg.edit_text(leaderboard_text, parse_mode='HTML', reply_markup=reply_markup)
+
+async def jump_to_contact_invite(update: Update, context: CallbackContext):
+    """Jump directly to contact selection for inviting"""
+    # Create a direct share link
+    bot_username = context.bot.username
+    invitation_text = "🎮 Let's play at Gomida House of Chewata!\n\nJoin me and let's have fun together!"
+    bot_link = f"https://t.me/{bot_username}"
+    
+    # Create share URL that opens Telegram's sharing interface
+    share_url = f"https://t.me/share/url?url={quote(bot_link)}&text={quote(invitation_text)}"
+    
+    # Create a simple keyboard with share button
+    keyboard = [
+        [InlineKeyboardButton("📱 Select Contacts", url=share_url)],
+        [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_to_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        "📤 <b>Invite Friends to Play!</b>\n\n"
+        "Tap the button below to select friends from your contacts and send them an invitation!\n\n"
+        "🎁 <b>Bonus:</b> Earn extra points for each friend who joins!",
+        parse_mode='HTML',
+        reply_markup=reply_markup
+    )
+
+async def request_invite_contacts(update: Update, context: CallbackContext):
+    """Request user to select contacts for invitation"""
+    # Create contact selection keyboard
+    contact_button = KeyboardButton("📱 Select Contacts", request_contact=False)
+    
+    keyboard = [[contact_button], ["Cancel"]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+    
+    await update.message.reply_text(
+        "📱 <b>Invite Friends</b>\n\n"
+        "Tap the button below to select friends from your contacts:",
+        parse_mode='HTML',
+        reply_markup=reply_markup
+    )
+
+async def handle_contact_selection(update: Update, context: CallbackContext):
+    """Handle contact selection for invitations"""
+    text = update.message.text
+    
+    if text == "📱 Select Contacts":
+        # Create shareable link with invitation message
+        bot_username = context.bot.username
+        invitation_text = "🎮 Let's play at Gomida House of Chewata!\n\nJoin me and let's have fun together!"
+        bot_link = f"https://t.me/{bot_username}"
+        
+        # Create a deep link with invitation message
+        share_url = f"https://t.me/share/url?url={quote(bot_link)}&text={quote(invitation_text)}"
+        
+        # Send the share link directly
+        await update.message.reply_text(
+            f"📤 <b>Ready to Invite!</b>\n\n"
+            f"👉 <a href='{share_url}'>Tap here to select friends</a>\n\n"
+            f"<b>Message that will be sent:</b>\n"
+            f"<code>{invitation_text}\n\n{bot_link}</code>\n\n"
+            f"🎮 <b>Earn bonus points for each friend who joins!</b>",
+            parse_mode='HTML',
+            disable_web_page_preview=True
+        )
+        
+        # Return to main menu after a short delay
+        if context.user_data.get('contact_shared', False):
+            await update.message.reply_text(
+                "What would you like to do next?",
+                reply_markup=unlocked_menu_markup
+            )
+        else:
+            await update.message.reply_text(
+                "What would you like to do next?",
+                reply_markup=regular_menu_markup
+            )
+    
+    elif text == "Cancel":
+        # Return to main menu
+        if context.user_data.get('contact_shared', False):
+            await update.message.reply_text(
+                "Invitation cancelled.",
+                reply_markup=unlocked_menu_markup
+            )
+        else:
+            await update.message.reply_text(
+                "Invitation cancelled.",
+                reply_markup=regular_menu_markup
+            )
+
+from commands import send_registration_notification
 
 async def handle_contact_shared(update: Update, context: CallbackContext):
     """Handle when user shares their contact"""
@@ -204,6 +335,8 @@ async def handle_contact_shared(update: Update, context: CallbackContext):
     update_data = {
         "id": user_id,
         "username": api_user.get('username') or user.username or f"user_{user.id}",
+        "first_name": user.first_name or "",
+        "last_name": user.last_name or "",
         "phone": contact.phone_number,
         "score": api_user.get('score', 0),
         "flags_level": api_user.get('flags_level', 1),
@@ -216,27 +349,51 @@ async def handle_contact_shared(update: Update, context: CallbackContext):
     
     # Call API to update user
     updated_user = await update_user(user_id, update_data)
+    api_success = bool(updated_user)
     
     if updated_user:
         context.user_data['api_user'] = updated_user
-        await update.message.reply_text(
-            f"✅ Thank you {contact.first_name}!\n\n"
-            "Your contact has been saved successfully!\n"
-            "You now have access to all features!",
-            reply_markup=unlocked_menu_markup
-        )
     else:
-        # Fallback if API fails
-        await update.message.reply_text(
-            f"✅ Thank you {contact.first_name}!\n\n"
-            "Your contact has been saved locally!\n"
-            "Some features may be limited.",
-            reply_markup=unlocked_menu_markup
-        )
+        # Fallback: use update_data if API failed
+        context.user_data['api_user'] = update_data
+    
+    # ✅ Send notification to admin group about contact update
+    await send_registration_notification(
+        bot=context.bot,
+        new_user=context.user_data['api_user'],
+        context={'contact_shared': True, 'api_response': api_success}
+    )
+    
+    await update.message.reply_text(
+        f"✅ Thank you {contact.first_name}!\n\n"
+        "Your contact has been saved successfully!\n"
+        "You now have access to all features!",
+        reply_markup=unlocked_menu_markup
+    )
 
 async def handle_callback_query(update: Update, context: CallbackContext):
-    """Handle callback queries when user clicks Play button on Telegram game"""
+    """Handle callback queries for games, leaderboard pagination, and back to menu"""
     query = update.callback_query
+    await query.answer()  # Acknowledge the callback
+    
+    # Check if it's a back to menu callback
+    if query.data == "back_to_menu":
+        if context.user_data.get('contact_shared', False):
+            await query.edit_message_text(
+                "Returning to main menu...",
+                reply_markup=unlocked_menu_markup
+            )
+        else:
+            await query.edit_message_text(
+                "Returning to main menu...",
+                reply_markup=regular_menu_markup
+            )
+        return
+    
+    # Check if it's a leaderboard pagination callback
+    if query.data and query.data.startswith("leaderboard_"):
+        await handle_leaderboard_callback(update, context)
+        return
     
     # For Telegram Game API, the callback contains game_short_name
     if query.game_short_name:
@@ -309,7 +466,6 @@ async def handle_callback_query(update: Update, context: CallbackContext):
                 game_url = f"{game_data['url']}?{'&'.join(query_parts)}"
             else:
                 game_url = game_data['url']
-                print(f"Game URL (no params): {game_url}")
             
             # Answer the callback query with the game URL
             await query.answer(url=game_url)
@@ -319,56 +475,117 @@ async def handle_callback_query(update: Update, context: CallbackContext):
         # Handle other callback queries if needed
         await query.answer()
 
-from commands import send_registration_notification
+async def handle_leaderboard_callback(update: Update, context: CallbackContext):
+    """Handle leaderboard pagination callbacks"""
+    query = update.callback_query
+    data = query.data
+    
+    if data.startswith("leaderboard_page_"):
+        # Extract page number from callback data
+        try:
+            page = int(data.split("_")[-1])
+            await show_leaderboard_callback(query, context, page)
+        except (ValueError, IndexError):
+            await query.answer("Invalid page number!", show_alert=True)
+    
+    elif data.startswith("leaderboard_jump_"):
+        # Jump to page containing user's position
+        try:
+            position = int(data.split("_")[-1])
+            page = ((position - 1) // LEADERBOARD_PAGE_SIZE) + 1
+            await show_leaderboard_callback(query, context, page)
+        except (ValueError, IndexError):
+            await query.answer("Could not find your position!", show_alert=True)
 
-async def handle_contact_shared(update: Update, context: CallbackContext):
-    """Handle when user shares their contact"""
-    contact = update.message.contact
-    user = update.effective_user
+async def show_leaderboard_callback(query, context: CallbackContext, page: int = 1):
+    """Update leaderboard message for callback queries"""
+    # Get leaderboard data from API
+    leaderboard_data = await get_leaderboard()
     
-    # Update user data in context
-    context.user_data['contact_shared'] = True
-    context.user_data['user_phone'] = contact.phone_number
+    if not leaderboard_data or not leaderboard_data:
+        await query.edit_message_text("❌ Could not load leaderboard. Please try again later.")
+        return
     
-    # Update user in backend API
-    api_user = context.user_data.get('api_user', {})
-    user_id = api_user.get('id', user.id)
+    total_users = len(leaderboard_data)
+    total_pages = (total_users + LEADERBOARD_PAGE_SIZE - 1) // LEADERBOARD_PAGE_SIZE
     
-    update_data = {
-        "id": user_id,
-        "username": api_user.get('username') or user.username or f"user_{user.id}",
-        "first_name": user.first_name or "",
-        "last_name": user.last_name or "",
-        "phone": contact.phone_number,
-        "score": api_user.get('score', 0),
-        "flags_level": api_user.get('flags_level', 1),
-        "maps_level": api_user.get('maps_level', 1),
-        "attires_level": api_user.get('attires_level', 1),
-        "flags_stars": api_user.get('flags_stars', {}),
-        "maps_stars": api_user.get('maps_stars', {}),
-        "attires_stars": api_user.get('attires_stars', {})
-    }
+    # Ensure page is within valid range
+    page = max(1, min(page, total_pages))
     
-    # Call API to update user
-    updated_user = await update_user(user_id, update_data)
-    api_success = bool(updated_user)
+    # Calculate start and end indices for current page
+    start_idx = (page - 1) * LEADERBOARD_PAGE_SIZE
+    end_idx = min(start_idx + LEADERBOARD_PAGE_SIZE, total_users)
     
-    if updated_user:
-        context.user_data['api_user'] = updated_user
-    else:
-        # Fallback: use update_data if API failed
-        context.user_data['api_user'] = update_data
+    # Format leaderboard header
+    leaderboard_text = f"<b>🏆 Global Leaderboard</b>\n"
+    leaderboard_text += f"<i>Page {page}/{total_pages} • {total_users} players</i>\n\n"
     
-    # ✅ Send notification to admin group about contact update
-    await send_registration_notification(
-        bot=context.bot,
-        new_user=context.user_data['api_user'],
-        context={'contact_shared': True, 'api_response': api_success}
-    )
+    # Emojis for positions
+    position_emojis = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
     
-    await update.message.reply_text(
-        f"✅ Thank you {contact.first_name}!\n\n"
-        "Your contact has been saved successfully!\n"
-        "You now have access to all features!",
-        reply_markup=unlocked_menu_markup
-    )
+    for i in range(start_idx, end_idx):
+        user = leaderboard_data[i]
+        username = user.get('username', 'Unknown')
+        score = user.get('score', 0)
+        position = i + 1
+        
+        # Truncate long usernames
+        if len(username) > 15:
+            username = username[:12] + "..."
+        
+        # Get appropriate emoji for position
+        if position <= 10:
+            position_emoji = position_emojis[position - 1]
+        else:
+            position_emoji = f"{position}."
+        
+        # Highlight current user
+        current_user = context.user_data.get('api_user', {})
+        is_current_user = user.get('id') == current_user.get('id')
+        
+        if is_current_user:
+            leaderboard_text += f"{position_emoji} <b>{username} - {score} pts 👈 YOU</b>\n"
+        else:
+            leaderboard_text += f"{position_emoji} {username} - {score} pts\n"
+    
+    # Add user's own position if not on current page
+    current_user = context.user_data.get('api_user', {})
+    if current_user:
+        user_id = current_user.get('id')
+        user_score = current_user.get('score', 0)
+        
+        # Find user's position in leaderboard
+        user_position = None
+        for i, user in enumerate(leaderboard_data):
+            if user.get('id') == user_id:
+                user_position = i + 1
+                break
+        
+        if user_position and (user_position < start_idx + 1 or user_position > end_idx):
+            leaderboard_text += f"\n<b>Your Position:</b> #{user_position} - {user_score} pts"
+    
+    # Add footer
+    leaderboard_text += "\nPlay more games to climb the ranks! 🎮"
+    
+    # Create pagination buttons
+    keyboard = []
+    
+    # Previous button (only if not on first page)
+    if page > 1:
+        keyboard.append(InlineKeyboardButton("◀️ Previous", callback_data=f"leaderboard_page_{page-1}"))
+    
+    # Refresh button
+    keyboard.append(InlineKeyboardButton("🔄 Refresh", callback_data=f"leaderboard_page_{page}"))
+    
+    # Next button (only if not on last page)
+    if page < total_pages:
+        keyboard.append(InlineKeyboardButton("Next ▶️", callback_data=f"leaderboard_page_{page+1}"))
+    
+    # Add jump to my position button if user is in leaderboard
+    if current_user and user_position:
+        keyboard.append(InlineKeyboardButton("📍 My Rank", callback_data=f"leaderboard_jump_{user_position}"))
+    
+    reply_markup = InlineKeyboardMarkup([keyboard]) if keyboard else None
+    
+    # Edit the message with updated leaderboard
+    await query.edit_message_text(leaderboard_text, parse_mode='HTML', reply_markup=reply_markup)

@@ -5,7 +5,7 @@ from typing import Optional, Dict, Any, List
 
 logger = logging.getLogger(__name__)
 
-API_BASE_URL = "https://match-africa-backend.vercel.app"
+API_BASE_URL = "https://matchafricabackend.onrender.com"
 
 async def create_user(user_data: Dict[str, Any]) -> Optional[Dict]:
     """Create a new user via API"""
