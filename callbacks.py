@@ -374,7 +374,8 @@ async def handle_contact_shared(update: Update, context: CallbackContext):
 async def handle_callback_query(update: Update, context: CallbackContext):
     """Handle callback queries for games, leaderboard pagination, and back to menu"""
     query = update.callback_query
-    await query.answer()  # Acknowledge the callback
+    # Do not acknowledge immediately so we can answer with a URL later (query.answer(url=...)).
+    # We'll answer the callback in each branch as appropriate.
     
     # Check if it's a back to menu callback
     if query.data == "back_to_menu":
@@ -388,6 +389,8 @@ async def handle_callback_query(update: Update, context: CallbackContext):
                 "Returning to main menu...",
                 reply_markup=regular_menu_markup
             )
+        # Acknowledge the callback to remove the loading state
+        await query.answer()
         return
     
     # Check if it's a leaderboard pagination callback
@@ -468,12 +471,15 @@ async def handle_callback_query(update: Update, context: CallbackContext):
                 game_url = game_data['url']
             
             # Answer the callback query with the game URL
+            print("Answered game callback with URL:", game_url)
             await query.answer(url=game_url)
         else:
             await query.answer(text="Game not found!", show_alert=True)
+            print("No game data found for short name:", query.game_short_name)
     else:
         # Handle other callback queries if needed
         await query.answer()
+        print("Unhandled callback query data:", query.data)
 
 async def handle_leaderboard_callback(update: Update, context: CallbackContext):
     """Handle leaderboard pagination callbacks"""
@@ -485,6 +491,8 @@ async def handle_leaderboard_callback(update: Update, context: CallbackContext):
         try:
             page = int(data.split("_")[-1])
             await show_leaderboard_callback(query, context, page)
+            # Acknowledge the callback after editing the leaderboard
+            await query.answer()
         except (ValueError, IndexError):
             await query.answer("Invalid page number!", show_alert=True)
     
@@ -494,6 +502,8 @@ async def handle_leaderboard_callback(update: Update, context: CallbackContext):
             position = int(data.split("_")[-1])
             page = ((position - 1) // LEADERBOARD_PAGE_SIZE) + 1
             await show_leaderboard_callback(query, context, page)
+            # Acknowledge the callback after editing the leaderboard
+            await query.answer()
         except (ValueError, IndexError):
             await query.answer("Could not find your position!", show_alert=True)
 
