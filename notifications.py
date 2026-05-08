@@ -91,6 +91,7 @@ async def broadcast_notification(bot, text: str, photo_file_id: str = None, pars
     sent = 0
     for user_id in subs:
         try:
+            logger.info(f"📤 Sending notification to user {user_id}...")
             if photo_file_id:
                 await bot.send_photo(chat_id=user_id, photo=photo_file_id, caption=text, parse_mode=parse_mode)
             else:

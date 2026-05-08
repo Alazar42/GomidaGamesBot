@@ -176,16 +176,24 @@ async def check_api_health() -> bool:
 
 
 async def get_all_users() -> Optional[List[Dict]]:
-    """Fetch all users from the backend. Returns a list of user dicts or None on error."""
+    """Fetch all users from the backend. Returns a list of user dicts or None on error.
+    
+    Note: Backend may be on free hosting (cold start), so first request may take 30-60s.
+    """
     max_attempts = 3
     backoff = 1
+    # Use longer timeout for cold-start scenario (free tier databases may spin down)
+    timeout = 120.0
+    
     try:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             for attempt in range(1, max_attempts + 1):
+                logger.info(f"🔍 Fetching users list (attempt {attempt}/{max_attempts}, timeout={timeout}s)...")
                 response = await client.get(f"{API_BASE_URL}/users")
                 logger.info(f"🔍 Get all users response status: {response.status_code}")
 
                 if response.status_code == 200:
+                    logger.info("✅ Successfully fetched users from backend")
                     return response.json()
 
                 if response.status_code == 429:
@@ -202,11 +210,15 @@ async def get_all_users() -> Optional[List[Dict]]:
                     if redirect_url:
                         response = await client.get(redirect_url)
                         if response.status_code == 200:
+                            logger.info("✅ Successfully fetched users from backend (after redirect)")
                             return response.json()
 
                 logger.error(f"❌ Failed to fetch users list: {response.status_code} - {response.text}")
                 return None
 
+    except asyncio.TimeoutError:
+        logger.error(f"⏱️ Timeout fetching users (backend may be cold-starting on free tier). Try again in 30-60s.")
+        return None
     except Exception as e:
         logger.error(f"❌ Error fetching all users: {e}")
         return None
