@@ -21,6 +21,6 @@ games = [
         "short_name": "matchafrica",
         "url": "https://penality-shootout-game-web-v65834.vercel.app/",
         "button_text": "Play Penalty Shootout",
-        "thumbnail_url": "https://pggctghkfeyhtkufbfca.supabase.co/storage/v1/object/public/public%20images/Screenshot%202026-05-08%20070848.png"
+        "thumbnail_url": "https://pggctghkfeyhtkufbfca.supabase.co/storage/v1/object/public/public%20images/photo_2026-05-08_10-35-56.jpg"
     }
 ]
