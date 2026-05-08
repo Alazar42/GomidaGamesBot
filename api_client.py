@@ -1,5 +1,6 @@
 # api_client.py
 import httpx
+import asyncio
 import logging
 from typing import Optional, Dict, Any, List
 
@@ -176,20 +177,36 @@ async def check_api_health() -> bool:
 
 async def get_all_users() -> Optional[List[Dict]]:
     """Fetch all users from the backend. Returns a list of user dicts or None on error."""
+    max_attempts = 3
+    backoff = 1
     try:
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            response = await client.get(f"{API_BASE_URL}/users")
-            logger.info(f"🔍 Get all users response status: {response.status_code}")
-            if response.status_code == 200:
-                return response.json()
-            elif response.status_code == 307:
-                redirect_url = response.headers.get('location')
-                if redirect_url:
-                    response = await client.get(redirect_url)
-                    if response.status_code == 200:
-                        return response.json()
-            logger.error(f"❌ Failed to fetch users list: {response.status_code} - {response.text}")
-            return None
+            for attempt in range(1, max_attempts + 1):
+                response = await client.get(f"{API_BASE_URL}/users")
+                logger.info(f"🔍 Get all users response status: {response.status_code}")
+
+                if response.status_code == 200:
+                    return response.json()
+
+                if response.status_code == 429:
+                    # Respect Retry-After header if present, otherwise exponential backoff
+                    retry_after = response.headers.get('Retry-After')
+                    wait = int(retry_after) if retry_after and retry_after.isdigit() else backoff
+                    logger.warning(f"⚠️ Rate limited when fetching users (attempt {attempt}/{max_attempts}), sleeping {wait}s")
+                    await asyncio.sleep(wait)
+                    backoff *= 2
+                    continue
+
+                if response.status_code == 307:
+                    redirect_url = response.headers.get('location')
+                    if redirect_url:
+                        response = await client.get(redirect_url)
+                        if response.status_code == 200:
+                            return response.json()
+
+                logger.error(f"❌ Failed to fetch users list: {response.status_code} - {response.text}")
+                return None
+
     except Exception as e:
         logger.error(f"❌ Error fetching all users: {e}")
         return None

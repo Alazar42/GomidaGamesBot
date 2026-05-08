@@ -109,7 +109,7 @@ async def _fetch_sheet_subscribers(sheet_url: str, gid: str = None):
     if gid:
         export_url += f"&gid={gid}"
 
-    async with httpx.AsyncClient(timeout=20.0) as client:
+    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
         resp = await client.get(export_url)
         resp.raise_for_status()
         text = resp.text
