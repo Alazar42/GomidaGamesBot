@@ -1,5 +1,5 @@
 # callbacks.py
-from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import CallbackContext
 from docs import TERMS_AND_SERVICES
 from games import games
@@ -89,9 +89,36 @@ async def handle_message_response(update: Update, context: CallbackContext):
                 reply_markup=regular_menu_markup
             )
         
-        # Send each game using Telegram's Game API
+        # be telegram miniapp yekeftewal instead of raw link 
         for game in games:
-            await update.message.reply_game(game_short_name=game["short_name"])
+            title = game.get("title") or game["name"]
+            description = game.get("description") or "Play now inside Telegram."
+            button_text = game.get("button_text") or f"Play {game['name']}"
+            thumbnail_url = (game.get("thumbnail_url") or "").strip()
+            caption = (
+                f"<b>{html.escape(title)}</b>\n"
+                f"{html.escape(description)}\n\n"
+                "Tap the button below to launch the game."
+            )
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton(
+                    button_text,
+                    web_app=WebAppInfo(url=game["url"])
+                )]
+            ])
+
+            if thumbnail_url:
+                await update.message.reply_photo(
+                    photo=thumbnail_url,
+                    caption=caption,
+                    parse_mode="HTML",
+                    reply_markup=keyboard
+                )
+            else:
+                await update.message.reply_html(
+                    caption,
+                    reply_markup=keyboard
+                )
     
     elif text == "✉️ Invite":
         # Jump directly to contact sharing
