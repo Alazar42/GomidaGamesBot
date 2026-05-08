@@ -2,6 +2,59 @@
 import os
 import logging
 from typing import List
+import json
+
+SUBSCRIBERS_FILE = os.path.join(os.path.dirname(__file__), "subscribers.json")
+
+def _load_subscribers() -> List[int]:
+    try:
+        if os.path.exists(SUBSCRIBERS_FILE):
+            with open(SUBSCRIBERS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return [int(x) for x in data]
+    except Exception as e:
+        logger.error(f"❌ Failed to load subscribers: {e}")
+    return []
+
+def _save_subscribers(subs: List[int]):
+    try:
+        with open(SUBSCRIBERS_FILE, "w", encoding="utf-8") as f:
+            json.dump(list(subs), f)
+    except Exception as e:
+        logger.error(f"❌ Failed to save subscribers: {e}")
+
+def add_subscriber(user_id: int):
+    subs = set(_load_subscribers())
+    subs.add(int(user_id))
+    _save_subscribers(sorted(list(subs)))
+
+def remove_subscriber(user_id: int):
+    subs = set(_load_subscribers())
+    subs.discard(int(user_id))
+    _save_subscribers(sorted(list(subs)))
+
+def get_subscribers() -> List[int]:
+    return _load_subscribers()
+
+async def broadcast_notification(bot, text: str, photo_file_id: str = None, parse_mode: str = None):
+    """Send a message (and optional photo) to all subscribers."""
+    subs = _load_subscribers()
+    if not subs:
+        logger.info("ℹ️ No subscribers to broadcast to")
+        return 0
+
+    sent = 0
+    for user_id in subs:
+        try:
+            if photo_file_id:
+                await bot.send_photo(chat_id=user_id, photo=photo_file_id, caption=text, parse_mode=parse_mode)
+            else:
+                await bot.send_message(chat_id=user_id, text=text, parse_mode=parse_mode)
+            sent += 1
+        except Exception as e:
+            logger.error(f"❌ Failed to send notification to {user_id}: {e}")
+    logger.info(f"✅ Broadcast complete, messages sent: {sent}")
+    return sent
 
 logger = logging.getLogger(__name__)
 

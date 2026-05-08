@@ -6,6 +6,9 @@ from api_client import create_user, get_user_by_tg_id, update_user
 import logging
 import os
 from datetime import datetime
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from notifications import add_subscriber, remove_subscriber, broadcast_notification
+import html
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +162,10 @@ async def start(update: Update, context: CallbackContext) -> None:
                     "Welcome back to Gomida Games! 🎮", 
                     reply_markup=unlocked_menu_markup
                 )
+                try:
+                    add_subscriber(user.id)
+                except Exception:
+                    logger.exception("Failed to add subscriber on start")
             else:
                 context.user_data['api_user'] = existing_user
                 context.user_data['contact_shared'] = False
@@ -167,6 +174,10 @@ async def start(update: Update, context: CallbackContext) -> None:
                     "Would you like to share your contact for a better experience?",
                     reply_markup=initial_menu_markup
                 )
+                try:
+                    add_subscriber(user.id)
+                except Exception:
+                    logger.exception("Failed to add subscriber on start")
         else:
             # Create new user without phone
             logger.info(f"🆕 Creating new user: {user.id} - {user.username}")
@@ -207,6 +218,10 @@ async def start(update: Update, context: CallbackContext) -> None:
                     welcome_message,
                     reply_markup=initial_menu_markup
                 )
+                try:
+                    add_subscriber(user.id)
+                except Exception:
+                    logger.exception("Failed to add subscriber on start")
             else:
                 # Fallback if API fails - use local storage only
                 logger.warning(f"⚠️ API failed for user {user.id}, using local storage")
@@ -229,6 +244,10 @@ async def start(update: Update, context: CallbackContext) -> None:
                     welcome_message,
                     reply_markup=regular_menu_markup
                 )
+                try:
+                    add_subscriber(user.id)
+                except Exception:
+                    logger.exception("Failed to add subscriber on start")
                 
     except Exception as e:
         logger.error(f"❌ Error in start command for user {user.id}: {e}")
@@ -241,8 +260,12 @@ async def start(update: Update, context: CallbackContext) -> None:
 
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    context.user_data.clear()
     logger.info(f"🛑 User {user_id} stopped the bot")
+    try:
+        remove_subscriber(user_id)
+    except Exception:
+        logger.exception("Failed to remove subscriber on stop")
+    context.user_data.clear()
     await update.message.reply_text(
         "Gomida Games has been stopped! To start again, type /start."
     )
@@ -391,3 +414,80 @@ async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
     await update.message.reply_text(message, parse_mode='Markdown')
+
+# Notify conversation states
+WAITING_MESSAGE = 1
+
+async def notify_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    # Only allow specific username
+    if not user.username or user.username.lower() != 'gomidasolutions':
+        await update.message.reply_text("❌ You are not authorized to use /notify.")
+        return ConversationHandler.END
+
+    context.user_data['notify_draft'] = {}
+    await update.message.reply_text(
+        "✉️ Send the notification message you want to broadcast.\n"
+        "You may send plain text or send a photo with a caption.\n"
+        "Send /cancel to abort."
+    )
+    return WAITING_MESSAGE
+
+async def notify_receive(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Accept text or photo with caption
+    draft = {'text': '', 'photo': None}
+    if update.message.photo:
+        # Get highest resolution
+        file_id = update.message.photo[-1].file_id
+        draft['photo'] = file_id
+        draft['text'] = update.message.caption or ''
+    else:
+        draft['text'] = update.message.text or ''
+
+    context.user_data['notify_draft'] = draft
+
+    # Prepare confirmation buttons
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Yes ✅", callback_data="notify_confirm_yes"),
+         InlineKeyboardButton("No ❌", callback_data="notify_confirm_no")]
+    ])
+
+    # Send preview with buttons
+    if draft['photo']:
+        await update.message.reply_photo(photo=draft['photo'], caption=f"Preview:\n\n{draft['text']}", reply_markup=keyboard)
+    else:
+        await update.message.reply_text(f"Preview:\n\n{draft['text']}", reply_markup=keyboard)
+
+    return ConversationHandler.END
+
+async def notify_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("❌ Notification cancelled.")
+    context.user_data.pop('notify_draft', None)
+    return ConversationHandler.END
+
+async def notify_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    draft = context.user_data.get('notify_draft')
+
+    if not draft:
+        await query.edit_message_text("⚠️ No draft found or session expired.")
+        return
+
+    if data == 'notify_confirm_no':
+        await query.edit_message_text("❌ Notification cancelled.")
+        context.user_data.pop('notify_draft', None)
+        return
+
+    # Confirm yes -> broadcast
+    if data == 'notify_confirm_yes':
+        text = draft.get('text', '')
+        photo = draft.get('photo')
+        try:
+            sent = await broadcast_notification(bot=context.bot, text=text, photo_file_id=photo, parse_mode='Markdown')
+            await query.edit_message_text(f"✅ Notification sent to {sent} subscribers.")
+        except Exception as e:
+            await query.edit_message_text(f"❌ Failed to broadcast: {e}")
+        finally:
+            context.user_data.pop('notify_draft', None)
