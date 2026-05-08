@@ -16,7 +16,11 @@ games = [
     # }
     {
         "name": "Penalty Shootout Game",
+        "title": "Penalty Shootout",
+        "description": "Penalty Shootout game by Gomida",
         "short_name": "matchafrica",
-        "url": "https://penality-shootout-game-web-v65834.vercel.app/"
+        "url": "https://penality-shootout-game-web-v65834.vercel.app/",
+        "button_text": "Play Penalty Shootout",
+        "thumbnail_url": "https://pggctghkfeyhtkufbfca.supabase.co/storage/v1/object/public/public%20images/Screenshot%202026-05-08%20070848.png"
     }
 ]
