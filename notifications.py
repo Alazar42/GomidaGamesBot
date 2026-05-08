@@ -53,8 +53,19 @@ async def broadcast_notification(bot, text: str, photo_file_id: str = None, pars
         try:
             users = await get_all_users()
             if users:
-                # Expect users to be dicts with Telegram IDs under 'id' key
-                subs = [int(u.get('id')) for u in users if u.get('id')]
+                # Extract user IDs, checking multiple possible field names
+                for user in users:
+                    user_id = None
+                    # Try common variants
+                    for field in ('id', 'telegram_id', 'tg_id', 'telegramId'):
+                        if field in user and user[field]:
+                            try:
+                                user_id = int(user[field])
+                                break
+                            except (ValueError, TypeError):
+                                continue
+                    if user_id:
+                        subs.append(user_id)
                 logger.info(f"ℹ️ Loaded {len(subs)} subscribers from main DB")
         except Exception as e:
             logger.exception(f"Failed to load users from API fallback: {e}")
