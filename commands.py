@@ -470,13 +470,27 @@ async def notify_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
     await query.answer()
     data = query.data
     draft = context.user_data.get('notify_draft')
+    # Helper to safely edit either caption (for photo messages) or text
+    async def _edit_message_safe(msg_obj, new_text: str, parse_mode: str = None):
+        try:
+            # Photo messages must use edit_message_caption
+            if getattr(msg_obj, 'photo', None):
+                await query.edit_message_caption(caption=new_text, parse_mode=parse_mode)
+            else:
+                await query.edit_message_text(new_text, parse_mode=parse_mode)
+        except Exception:
+            # Last resort: answer callback with alert
+            try:
+                await query.answer(text=new_text, show_alert=True)
+            except Exception:
+                logger.exception("Failed to deliver confirmation message")
 
     if not draft:
-        await query.edit_message_text("⚠️ No draft found or session expired.")
+        await _edit_message_safe(query.message, "⚠️ No draft found or session expired.")
         return
 
     if data == 'notify_confirm_no':
-        await query.edit_message_text("❌ Notification cancelled.")
+        await _edit_message_safe(query.message, "❌ Notification cancelled.")
         context.user_data.pop('notify_draft', None)
         return
 
@@ -486,8 +500,8 @@ async def notify_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
         photo = draft.get('photo')
         try:
             sent = await broadcast_notification(bot=context.bot, text=text, photo_file_id=photo, parse_mode='Markdown')
-            await query.edit_message_text(f"✅ Notification sent to {sent} subscribers.")
+            await _edit_message_safe(query.message, f"✅ Notification sent to {sent} subscribers.")
         except Exception as e:
-            await query.edit_message_text(f"❌ Failed to broadcast: {e}")
+            await _edit_message_safe(query.message, f"❌ Failed to broadcast: {e}")
         finally:
             context.user_data.pop('notify_draft', None)
