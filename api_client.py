@@ -172,3 +172,24 @@ async def check_api_health() -> bool:
                 return response.status_code < 500
         except:
             return False
+
+
+async def get_all_users() -> Optional[List[Dict]]:
+    """Fetch all users from the backend. Returns a list of user dicts or None on error."""
+    try:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            response = await client.get(f"{API_BASE_URL}/users")
+            logger.info(f"🔍 Get all users response status: {response.status_code}")
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 307:
+                redirect_url = response.headers.get('location')
+                if redirect_url:
+                    response = await client.get(redirect_url)
+                    if response.status_code == 200:
+                        return response.json()
+            logger.error(f"❌ Failed to fetch users list: {response.status_code} - {response.text}")
+            return None
+    except Exception as e:
+        logger.error(f"❌ Error fetching all users: {e}")
+        return None

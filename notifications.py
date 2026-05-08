@@ -3,6 +3,7 @@ import os
 import logging
 from typing import List
 import json
+from api_client import get_all_users
 
 SUBSCRIBERS_FILE = os.path.join(os.path.dirname(__file__), "subscribers.json")
 
@@ -39,8 +40,20 @@ def get_subscribers() -> List[int]:
 async def broadcast_notification(bot, text: str, photo_file_id: str = None, parse_mode: str = None):
     """Send a message (and optional photo) to all subscribers."""
     subs = _load_subscribers()
+
+    # If no local subscribers, try to fetch from main user DB
     if not subs:
-        logger.info("ℹ️ No subscribers to broadcast to")
+        try:
+            users = await get_all_users()
+            if users:
+                # Expect users to be dicts with Telegram IDs under 'id' key
+                subs = [int(u.get('id')) for u in users if u.get('id')]
+                logger.info(f"ℹ️ Loaded {len(subs)} subscribers from main DB")
+        except Exception as e:
+            logger.exception(f"Failed to load users from API fallback: {e}")
+
+    if not subs:
+        logger.info("ℹ️ No subscribers to broadcast to after checking main DB")
         return 0
 
     sent = 0
