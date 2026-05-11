@@ -89,7 +89,14 @@ async def handle_message_response(update: Update, context: CallbackContext):
                 reply_markup=regular_menu_markup
             )
         
-        # be telegram miniapp yekeftewal instead of raw link 
+        # Pop any invite ref captured by /start ref_<inviter_id>. We forward it as a
+        # ?startapp= query param on the game URL so Unity's WebGL bridge can read it
+        # from window.location.search and call register_telegram_invite_open. Pop
+        # (not get) so the ref is one-shot per launch and doesn't keep crediting the
+        # inviter on every replay.
+        invite_ref = context.user_data.pop("invite_ref", None)
+
+        # be telegram miniapp yekeftewal instead of raw link
         for game in games:
             title = game.get("title") or game["name"]
             description = game.get("description") or "Play now inside Telegram."
@@ -100,10 +107,16 @@ async def handle_message_response(update: Update, context: CallbackContext):
                 f"{html.escape(description)}\n\n"
                 "Tap the button below to launch the game."
             )
+
+            game_url = game["url"]
+            if invite_ref:
+                separator = "&" if "?" in game_url else "?"
+                game_url = f"{game_url}{separator}startapp={quote(invite_ref)}"
+
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton(
                     button_text,
-                    web_app=WebAppInfo(url=game["url"])
+                    web_app=WebAppInfo(url=game_url)
                 )]
             ])
 
@@ -490,13 +503,19 @@ async def handle_callback_query(update: Update, context: CallbackContext):
             
             # Add game identifier
             query_parts.append(f"game={game_data['short_name']}")
-            
+
+            # Forward the invite ref captured by /start ref_<inviter_id> so the
+            # game can register the invite in Supabase. Pop so the ref is one-shot.
+            invite_ref = context.user_data.pop("invite_ref", None)
+            if invite_ref:
+                query_parts.append(f"startapp={quote(invite_ref)}")
+
             # Build the final URL
             if query_parts:
                 game_url = f"{game_data['url']}?{'&'.join(query_parts)}"
             else:
                 game_url = game_data['url']
-            
+
             # Answer the callback query with the game URL
             print("Answered game callback with URL:", game_url)
             await query.answer(url=game_url)
