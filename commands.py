@@ -1,8 +1,11 @@
 # commands.py
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import ContextTypes, CallbackContext, ConversationHandler
 from buttons import regular_menu_markup, unlocked_menu_markup, initial_menu_markup
 from api_client import create_user, get_user_by_tg_id, update_user
+from games import games
+from urllib.parse import quote
+import html
 import logging
 import os
 from datetime import datetime
@@ -117,7 +120,46 @@ async def send_registration_notification(bot, new_user: dict, context: dict = No
 
 async def start(update: Update, context: CallbackContext) -> None:
     user = update.effective_user
-    
+
+    # Capture the start payload from "https://t.me/<bot>?start=ref_<inviter_id>".
+    # Unity's TelegramManager builds invite URLs with "ref_<telegram_user_id>"; we
+    # forward the value to the game URL as ?startapp=ref_<inviter_id> so Unity's
+    # WebGL bridge can read it from window.location.search and register the invite
+    # in Supabase. Emit a Play button with the ref baked in BEFORE any other reply
+    # so we don't depend on in-memory user_data surviving across webhook requests
+    # (Vercel serverless can cold-start between /start and the user tapping Play).
+    invite_ref = None
+    if context.args:
+        raw_payload = context.args[0].strip() if context.args[0] else ""
+        if raw_payload.lower().startswith("ref_"):
+            inviter_id = raw_payload[4:].strip()
+            if inviter_id and inviter_id != str(user.id):
+                invite_ref = f"ref_{inviter_id}"
+                logger.info(f"📨 Captured invite ref for user {user.id}: {invite_ref}")
+
+    if invite_ref:
+        try:
+            for game in games:
+                game_url = game["url"]
+                separator = "&" if "?" in game_url else "?"
+                game_url = f"{game_url}{separator}startapp={quote(invite_ref)}"
+
+                title = game.get("title") or game["name"]
+                description = game.get("description") or "Play now inside Telegram."
+                button_text = game.get("button_text") or f"Play {game['name']}"
+                caption = (
+                    "🎉 <b>You were invited to play!</b>\n\n"
+                    f"<b>{html.escape(title)}</b>\n"
+                    f"{html.escape(description)}\n\n"
+                    "Tap the button below to launch the game and credit your inviter."
+                )
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton(button_text, web_app=WebAppInfo(url=game_url))]
+                ])
+                await update.message.reply_html(caption, reply_markup=keyboard)
+        except Exception as e:
+            logger.error(f"❌ Failed to send invite play button: {e}")
+
     try:
         # Check if user already exists in our system
         existing_user = await get_user_by_tg_id(user.id)
