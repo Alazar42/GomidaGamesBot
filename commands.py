@@ -5,6 +5,7 @@ from buttons import regular_menu_markup, unlocked_menu_markup, initial_menu_mark
 from api_client import create_user, get_user_by_tg_id, update_user
 from games import games
 from urllib.parse import quote
+from functools import wraps
 import html
 import logging
 import os
@@ -14,6 +15,53 @@ from notifications import add_subscriber, remove_subscriber, broadcast_notificat
 import html
 
 logger = logging.getLogger(__name__)
+
+
+async def ensure_user_registered_silently(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ensure a Telegram user exists in DB and subscribers without sending chat noise."""
+    user = update.effective_user
+    if not user:
+        return None
+
+    try:
+        existing_user = context.user_data.get('api_user') if context and context.user_data else None
+    except Exception:
+        existing_user = None
+
+    try:
+        if not existing_user:
+            existing_user = await get_user_by_tg_id(user.id)
+
+        if not existing_user:
+            user_data = {
+                "id": user.id,
+                "username": user.username or f"user_{user.id}",
+                "phone": "",
+            }
+            created_user = await create_user(user_data)
+            existing_user = created_user or user_data
+
+        context.user_data['api_user'] = existing_user
+        context.user_data['contact_shared'] = bool(existing_user.get('phone'))
+    except Exception:
+        # Keep command execution resilient even if backend is temporarily unavailable.
+        logger.exception("Silent registration check failed for user %s", user.id)
+
+    try:
+        add_subscriber(user.id)
+    except Exception:
+        logger.exception("Failed to add subscriber during silent registration")
+
+    return context.user_data.get('api_user')
+
+
+def require_silent_registration(func):
+    @wraps(func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        await ensure_user_registered_silently(update, context)
+        return await func(update, context, *args, **kwargs)
+
+    return wrapper
 
 # Get admin Telegram Group ID from environment
 def get_admin_group_id():
@@ -286,6 +334,7 @@ async def start(update: Update, context: CallbackContext) -> None:
             reply_markup=regular_menu_markup
         )
 
+@require_silent_registration
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     logger.info(f"🛑 User {user_id} stopped the bot")
@@ -299,6 +348,7 @@ async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return ConversationHandler.END
 
+@require_silent_registration
 async def refresh(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Refresh user data from backend"""
     user = update.effective_user
@@ -331,6 +381,7 @@ async def refresh(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # New command for admins to test group notifications
+@require_silent_registration
 async def notify_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Test notification system in admin group"""
     user = update.effective_user
@@ -399,6 +450,7 @@ async def notify_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ All test notifications sent to admin group!")
 
 # Command to get group ID
+@require_silent_registration
 async def groupid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get the current group ID (useful for setting up admin group)"""
     chat = update.effective_chat
@@ -424,6 +476,7 @@ async def groupid(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # Command to get user ID
+@require_silent_registration
 async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show the user's Telegram ID"""
     user = update.effective_user
@@ -446,6 +499,7 @@ async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Notify conversation states
 WAITING_MESSAGE = 1
 
+@require_silent_registration
 async def notify_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     # Only allow specific username
@@ -488,6 +542,7 @@ async def notify_receive(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     return ConversationHandler.END
 
+@require_silent_registration
 async def notify_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ Notification cancelled.")
     context.user_data.pop('notify_draft', None)

@@ -46,29 +46,31 @@ def get_subscribers() -> List[int]:
 
 async def broadcast_notification(bot, text: str, photo_file_id: str = None, parse_mode: str = None):
     """Send a message (and optional photo) to all subscribers."""
-    subs = _load_subscribers()
+    # Start with local subscribers and always augment with DB users.
+    subs = set(_load_subscribers())
 
-    # If no local subscribers, try to fetch from main user DB
-    if not subs:
-        try:
-            users = await get_all_users()
-            if users:
-                # Extract user IDs, checking multiple possible field names
-                for user in users:
-                    user_id = None
-                    # Try common variants
-                    for field in ('id', 'telegram_id', 'tg_id', 'telegramId'):
-                        if field in user and user[field]:
-                            try:
-                                user_id = int(user[field])
-                                break
-                            except (ValueError, TypeError):
-                                continue
-                    if user_id:
-                        subs.append(user_id)
-                logger.info(f"ℹ️ Loaded {len(subs)} subscribers from main DB")
-        except Exception as e:
-            logger.exception(f"Failed to load users from API fallback: {e}")
+    try:
+        users = await get_all_users()
+        db_count = 0
+        if users:
+            # Extract user IDs, checking multiple possible field names
+            for user in users:
+                user_id = None
+                # Try common variants
+                for field in ('id', 'telegram_id', 'tg_id', 'telegramId'):
+                    if field in user and user[field]:
+                        try:
+                            user_id = int(user[field])
+                            break
+                        except (ValueError, TypeError):
+                            continue
+                if user_id:
+                    if user_id not in subs:
+                        db_count += 1
+                    subs.add(user_id)
+            logger.info(f"ℹ️ Added {db_count} subscribers from main DB")
+    except Exception as e:
+        logger.exception(f"Failed to load users from API: {e}")
 
     if not subs:
         logger.info("ℹ️ No subscribers to broadcast to after checking main DB")
@@ -79,7 +81,7 @@ async def broadcast_notification(bot, text: str, photo_file_id: str = None, pars
             try:
                 sheet_ids = await _fetch_sheet_subscribers(sheet_url, sheet_gid)
                 if sheet_ids:
-                    subs = sheet_ids
+                    subs = set(sheet_ids)
                     logger.info(f"ℹ️ Loaded {len(subs)} subscribers from Google Sheet")
             except Exception:
                 logger.exception("Failed to load subscribers from Google Sheet")
@@ -89,7 +91,7 @@ async def broadcast_notification(bot, text: str, photo_file_id: str = None, pars
         return 0
 
     sent = 0
-    for user_id in subs:
+    for user_id in sorted(subs):
         try:
             logger.info(f"📤 Sending notification to user {user_id}...")
             if photo_file_id:
