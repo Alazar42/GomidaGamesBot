@@ -1,43 +1,53 @@
 # api_client.py
+import os
 import httpx
-import asyncio
 import logging
 from typing import Optional, Dict, Any, List
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-API_BASE_URL = "https://matchafricabackend.onrender.com"
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip('/')
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
+
+def get_headers():
+    return {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+    }
 
 async def create_user(user_data: Dict[str, Any]) -> Optional[Dict]:
-    """Create a new user via API"""
+    """Create a new user via Supabase REST API"""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        logger.error("❌ SUPABASE_URL or SUPABASE_KEY not set in environment.")
+        return None
+
     try:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        # Filter fields to match the simple database schema
+        db_user_data = {
+            "id": user_data.get("id"),
+            "username": user_data.get("username"),
+            "phone": user_data.get("phone", ""),
+        }
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
-                f"{API_BASE_URL}/users",
-                json=user_data
+                f"{SUPABASE_URL}/rest/v1/users",
+                headers=get_headers(),
+                json=db_user_data
             )
             
             logger.info(f"🔍 Create user response status: {response.status_code}")
-            logger.info(f"🔍 Response headers: {dict(response.headers)}")
             
-            if response.status_code in [200, 201, 307]:
-                # Handle 307 redirect by following it
-                if response.status_code == 307:
-                    redirect_url = response.headers.get('location')
-                    if redirect_url:
-                        logger.info(f"🔄 Following redirect to: {redirect_url}")
-                        response = await client.post(
-                            redirect_url,
-                            json=user_data
-                        )
-                        logger.info(f"🔍 Redirect response status: {response.status_code}")
-                
-                if response.status_code in [200, 201]:
-                    logger.info(f"✅ User created successfully: {user_data.get('username')}")
-                    return response.json()
-                else:
-                    logger.error(f"⚠️ Unexpected status after redirect: {response.status_code}")
-                    return None
+            if response.status_code in [200, 201]:
+                logger.info(f"✅ User created successfully: {db_user_data.get('username')}")
+                data = response.json()
+                # Return the created data or the original input if list is empty
+                return data[0] if isinstance(data, list) and len(data) > 0 else db_user_data
             else:
                 logger.error(f"❌ Failed to create user: {response.status_code} - {response.text}")
                 return None
@@ -46,27 +56,32 @@ async def create_user(user_data: Dict[str, Any]) -> Optional[Dict]:
         return None
 
 async def update_user(user_id: int, user_data: Dict[str, Any]) -> Optional[Dict]:
-    """Update existing user via API"""
+    """Update existing user via Supabase REST API"""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        logger.error("❌ SUPABASE_URL or SUPABASE_KEY not set in environment.")
+        return None
+
     try:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            response = await client.put(
-                f"{API_BASE_URL}/users/{user_id}",
-                json=user_data
+        # Filter fields to match the simple database schema
+        db_user_data = {
+            "username": user_data.get("username"),
+            "phone": user_data.get("phone", ""),
+        }
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # We patch based on id
+            response = await client.patch(
+                f"{SUPABASE_URL}/rest/v1/users?id=eq.{user_id}",
+                headers=get_headers(),
+                json=db_user_data
             )
             
             logger.info(f"🔍 Update user response status: {response.status_code}")
             
-            if response.status_code == 200:
+            if response.status_code in [200, 204]:
                 logger.info(f"✅ User {user_id} updated successfully")
-                return response.json()
-            elif response.status_code == 307:
-                # Handle redirect for PUT as well
-                redirect_url = response.headers.get('location')
-                if redirect_url:
-                    logger.info(f"🔄 Following redirect to: {redirect_url}")
-                    response = await client.put(redirect_url, json=user_data)
-                    if response.status_code == 200:
-                        return response.json()
+                data = response.json()
+                return data[0] if isinstance(data, list) and len(data) > 0 else db_user_data
             
             logger.error(f"❌ Failed to update user {user_id}: {response.status_code} - {response.text}")
             return None
@@ -75,26 +90,26 @@ async def update_user(user_id: int, user_data: Dict[str, Any]) -> Optional[Dict]
         return None
 
 async def get_user_by_tg_id(tg_id: int) -> Optional[Dict]:
-    """Get user by Telegram ID using /users/{id} endpoint"""
+    """Get user by Telegram ID from Supabase users table"""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        logger.error("❌ SUPABASE_URL or SUPABASE_KEY not set in environment.")
+        return None
+
     try:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            response = await client.get(f"{API_BASE_URL}/users/{tg_id}")
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"{SUPABASE_URL}/rest/v1/users?id=eq.{tg_id}&select=*",
+                headers=get_headers()
+            )
             
             logger.info(f"🔍 Get user response status: {response.status_code}")
             
             if response.status_code == 200:
-                logger.info(f"✅ User {tg_id} fetched successfully")
-                return response.json()
-            elif response.status_code == 307:
-                # Handle redirect
-                redirect_url = response.headers.get('location')
-                if redirect_url:
-                    logger.info(f"🔄 Following redirect to: {redirect_url}")
-                    response = await client.get(redirect_url)
-                    if response.status_code == 200:
-                        return response.json()
+                data = response.json()
+                if isinstance(data, list) and len(data) > 0:
+                    logger.info(f"✅ User {tg_id} fetched successfully")
+                    return data[0]
             
-            # User doesn't exist yet or other error
             logger.info(f"ℹ️ User {tg_id} not found or error: {response.status_code}")
             return None
     except Exception as e:
@@ -102,123 +117,25 @@ async def get_user_by_tg_id(tg_id: int) -> Optional[Dict]:
         return None
 
 async def get_leaderboard() -> Optional[List[Dict]]:
-    """Get leaderboard data from API"""
-    try:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            response = await client.get(
-                f"{API_BASE_URL}/users/leaderboard"
-            )
-            
-            logger.info(f"🔍 Leaderboard response status: {response.status_code}")
-            
-            if response.status_code == 200:
-                logger.info("✅ Leaderboard data fetched successfully")
-                return response.json()
-            elif response.status_code == 307:
-                redirect_url = response.headers.get('location')
-                if redirect_url:
-                    logger.info(f"🔄 Following redirect to: {redirect_url}")
-                    response = await client.get(redirect_url)
-                    if response.status_code == 200:
-                        return response.json()
-            
-            logger.error(f"❌ Failed to fetch leaderboard: {response.status_code} - {response.text}")
-            return None
-    except Exception as e:
-        logger.error(f"❌ Error fetching leaderboard: {e}")
-        return None
+    """Get leaderboard data from API - Mocked or adapted if needed"""
+    # If the simple DB only has id, username, phone, score isn't there, we can just return empty or error
+    logger.info("ℹ️ Leaderboard requested but no score column exists in simple users schema.")
+    return []
 
 async def check_user_exists(tg_id: int) -> bool:
     """Check if user exists in backend"""
     user = await get_user_by_tg_id(tg_id)
     return user is not None
 
-# Alternative direct approach for creating user
-async def create_user_direct(user_data: Dict[str, Any]) -> Optional[Dict]:
-    """Alternative method to create user, bypassing redirect issues"""
-    try:
-        # Try direct endpoint first
-        direct_endpoint = f"{API_BASE_URL}/api/users"
-        
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                direct_endpoint,
-                json=user_data
-            )
-            
-            if response.status_code in [200, 201]:
-                logger.info(f"✅ User created via direct endpoint: {user_data.get('username')}")
-                return response.json()
-            
-            # If direct endpoint fails, try the regular one with redirect handling
-            logger.info("🔄 Trying regular endpoint with redirect...")
-            return await create_user(user_data)
-            
-    except Exception as e:
-        logger.error(f"❌ Error in create_user_direct: {e}")
-        return None
-
-# Health check for API
 async def check_api_health() -> bool:
-    """Check if API is accessible"""
+    """Check if Supabase API is accessible"""
+    if not SUPABASE_URL:
+        return False
+        
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(f"{API_BASE_URL}/health")
-            return response.status_code == 200
+            # Hit Supabase base URL to verify connection
+            response = await client.get(SUPABASE_URL)
+            return response.status_code < 500
     except:
-        try:
-            # Try the root endpoint
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(API_BASE_URL)
-                return response.status_code < 500
-        except:
-            return False
-
-
-async def get_all_users() -> Optional[List[Dict]]:
-    """Fetch all users from the backend. Returns a list of user dicts or None on error.
-    
-    Note: Backend may be on free hosting (cold start), so first request may take 30-60s.
-    """
-    max_attempts = 3
-    backoff = 1
-    # Use longer timeout for cold-start scenario (free tier databases may spin down)
-    timeout = 120.0
-    
-    try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            for attempt in range(1, max_attempts + 1):
-                logger.info(f"🔍 Fetching users list (attempt {attempt}/{max_attempts}, timeout={timeout}s)...")
-                response = await client.get(f"{API_BASE_URL}/users")
-                logger.info(f"🔍 Get all users response status: {response.status_code}")
-
-                if response.status_code == 200:
-                    logger.info("✅ Successfully fetched users from backend")
-                    return response.json()
-
-                if response.status_code == 429:
-                    # Respect Retry-After header if present, otherwise exponential backoff
-                    retry_after = response.headers.get('Retry-After')
-                    wait = int(retry_after) if retry_after and retry_after.isdigit() else backoff
-                    logger.warning(f"⚠️ Rate limited when fetching users (attempt {attempt}/{max_attempts}), sleeping {wait}s")
-                    await asyncio.sleep(wait)
-                    backoff *= 2
-                    continue
-
-                if response.status_code == 307:
-                    redirect_url = response.headers.get('location')
-                    if redirect_url:
-                        response = await client.get(redirect_url)
-                        if response.status_code == 200:
-                            logger.info("✅ Successfully fetched users from backend (after redirect)")
-                            return response.json()
-
-                logger.error(f"❌ Failed to fetch users list: {response.status_code} - {response.text}")
-                return None
-
-    except asyncio.TimeoutError:
-        logger.error(f"⏱️ Timeout fetching users (backend may be cold-starting on free tier). Try again in 30-60s.")
-        return None
-    except Exception as e:
-        logger.error(f"❌ Error fetching all users: {e}")
-        return None
+        return False
