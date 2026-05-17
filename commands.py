@@ -137,13 +137,6 @@ async def start(update: Update, context: CallbackContext) -> None:
                     "id": user.id,
                     "username": user.username or f"user_{user.id}",
                     "phone": existing_user.get('phone', ''),
-                    "score": existing_user.get('score', 0),
-                    "flags_level": existing_user.get('flags_level', 1),
-                    "maps_level": existing_user.get('maps_level', 1),
-                    "attires_level": existing_user.get('attires_level', 1),
-                    "flags_stars": existing_user.get('flags_stars', {}),
-                    "maps_stars": existing_user.get('maps_stars', {}),
-                    "attires_stars": existing_user.get('attires_stars', {})
                 }
                 
                 # Update user in backend
@@ -185,13 +178,6 @@ async def start(update: Update, context: CallbackContext) -> None:
                 "id": user.id,  # Using Telegram ID as user ID
                 "username": user.username or f"user_{user.id}",
                 "phone": "",  # Empty phone initially
-                "score": 0,
-                "flags_level": 1,
-                "maps_level": 1,
-                "attires_level": 1,
-                "flags_stars": {},
-                "maps_stars": {},
-                "attires_stars": {}
             }
             
             # Create user via API

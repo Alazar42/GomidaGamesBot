@@ -32,13 +32,6 @@ async def handle_message_response(update: Update, context: CallbackContext):
                 "id": user.id,
                 "username": user.username or f"user_{user.id}",
                 "phone": "",
-                "score": 0,
-                "flags_level": 1,
-                "maps_level": 1,
-                "attires_level": 1,
-                "flags_stars": {},
-                "maps_stars": {},
-                "attires_stars": {}
             }
             existing_user = await create_user(user_data)
         
@@ -362,16 +355,7 @@ async def handle_contact_shared(update: Update, context: CallbackContext):
     update_data = {
         "id": user_id,
         "username": api_user.get('username') or user.username or f"user_{user.id}",
-        "first_name": user.first_name or "",
-        "last_name": user.last_name or "",
         "phone": contact.phone_number,
-        "score": api_user.get('score', 0),
-        "flags_level": api_user.get('flags_level', 1),
-        "maps_level": api_user.get('maps_level', 1),
-        "attires_level": api_user.get('attires_level', 1),
-        "flags_stars": api_user.get('flags_stars', {}),
-        "maps_stars": api_user.get('maps_stars', {}),
-        "attires_stars": api_user.get('attires_stars', {})
     }
     
     # Call API to update user
@@ -445,13 +429,6 @@ async def handle_callback_query(update: Update, context: CallbackContext):
                         "id": user.id,
                         "username": user.username or f"user_{user.id}",
                         "phone": "",
-                        "score": 0,
-                        "flags_level": 1,
-                        "maps_level": 1,
-                        "attires_level": 1,
-                        "flags_stars": {},
-                        "maps_stars": {},
-                        "attires_stars": {}
                     }
                     existing_user = await create_user(user_data)
                 
