@@ -1,6 +1,7 @@
 # commands.py
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import ContextTypes, CallbackContext, ConversationHandler
+from typing import Optional
 from buttons import regular_menu_markup, unlocked_menu_markup, initial_menu_markup
 from api_client import create_user, get_user_by_tg_id, update_user
 from games import games
@@ -17,14 +18,36 @@ import html
 logger = logging.getLogger(__name__)
 
 
+async def send_contact_required_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE, extra_text: Optional[str] = None):
+    if context is not None and getattr(context, "user_data", None) is not None:
+        context.user_data['awaiting_contact'] = True
+
+    message = (
+        "📞 Please tap the Share Contact button below.\n\n"
+        "Your phone number will be sent automatically."
+    )
+    if extra_text:
+        message = f"{extra_text}\n\n{message}"
+
+    if update.message:
+        await update.message.reply_text(message, reply_markup=initial_menu_markup)
+    elif update.callback_query:
+        await update.callback_query.answer(text=message, show_alert=True)
+
+
 async def ensure_user_registered_silently(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ensure a Telegram user exists in DB and subscribers without sending chat noise."""
     user = update.effective_user
-    if not user:
+    if not user or context is None:
         return None
 
+    user_store = getattr(context, "user_data", None)
+    if user_store is None:
+        return None
+
+
     try:
-        existing_user = context.user_data.get('api_user') if context and context.user_data else None
+        existing_user = user_store.get('api_user')
     except Exception:
         existing_user = None
 
@@ -33,16 +56,16 @@ async def ensure_user_registered_silently(update: Update, context: ContextTypes.
             existing_user = await get_user_by_tg_id(user.id)
 
         if not existing_user:
-            user_data = {
+            new_user_data = {
                 "id": user.id,
                 "username": user.username or f"user_{user.id}",
                 "phone": "",
             }
-            created_user = await create_user(user_data)
-            existing_user = created_user or user_data
+            created_user = await create_user(new_user_data)
+            existing_user = created_user or new_user_data
 
-        context.user_data['api_user'] = existing_user
-        context.user_data['contact_shared'] = bool(existing_user.get('phone'))
+        user_store['api_user'] = existing_user
+        user_store['contact_shared'] = bool(existing_user.get('phone'))
     except Exception:
         # Keep command execution resilient even if backend is temporarily unavailable.
         logger.exception("Silent registration check failed for user %s", user.id)
@@ -52,13 +75,17 @@ async def ensure_user_registered_silently(update: Update, context: ContextTypes.
     except Exception:
         logger.exception("Failed to add subscriber during silent registration")
 
-    return context.user_data.get('api_user')
+    return user_store.get('api_user')
 
 
-def require_silent_registration(func):
+def require_contact_registration(func):
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         await ensure_user_registered_silently(update, context)
+        user_data = getattr(context, 'user_data', None) or {}
+        if not user_data.get('contact_shared', False):
+            await send_contact_required_prompt(update, context)
+            return ConversationHandler.END
         return await func(update, context, *args, **kwargs)
 
     return wrapper
@@ -75,7 +102,7 @@ def get_admin_group_id():
             return None
     return None
 
-async def send_registration_notification(bot, new_user: dict, context: dict = None):
+async def send_registration_notification(bot, new_user: dict, context: Optional[dict] = None):
     """
     Send registration notifications to admin Telegram group
     
@@ -242,7 +269,7 @@ async def start(update: Update, context: CallbackContext) -> None:
                 )
                 
                 await update.message.reply_text(
-                    "Welcome back to Gomida Games! 🎮", 
+                    "Welcome back to Gomida Games! 🎮\n\nYour phone number is already on file. Use the buttons below to continue.", 
                     reply_markup=unlocked_menu_markup
                 )
                 try:
@@ -252,9 +279,10 @@ async def start(update: Update, context: CallbackContext) -> None:
             else:
                 context.user_data['api_user'] = existing_user
                 context.user_data['contact_shared'] = False
+                context.user_data['awaiting_contact'] = True
                 await update.message.reply_text(
                     f"Welcome back {user.username or 'there'}! 👋\n\n"
-                    "Would you like to share your contact for a better experience?",
+                    "Tap 📞 Share Contact below to send your phone automatically.",
                     reply_markup=initial_menu_markup
                 )
                 try:
@@ -277,6 +305,7 @@ async def start(update: Update, context: CallbackContext) -> None:
             if api_response:
                 context.user_data['api_user'] = api_response
                 context.user_data['contact_shared'] = False
+                context.user_data['awaiting_contact'] = True
                 
                 # ✅ Send registration notification to admin group
                 await send_registration_notification(
@@ -288,7 +317,7 @@ async def start(update: Update, context: CallbackContext) -> None:
                 welcome_message = f"Welcome to Gomida Games"
                 if user.username:
                     welcome_message += f", {user.username}"
-                welcome_message += "! 🎉\n\nWould you like to share your contact for a better experience?"
+                welcome_message += "! 🎉\n\nTap 📞 Share Contact below to send your phone automatically."
                 
                 await update.message.reply_text(
                     welcome_message,
@@ -303,6 +332,7 @@ async def start(update: Update, context: CallbackContext) -> None:
                 logger.warning(f"⚠️ API failed for user {user.id}, using local storage")
                 context.user_data['api_user'] = user_data
                 context.user_data['contact_shared'] = False
+                context.user_data['awaiting_contact'] = True
                 
                 # ✅ Still send notification even if API fails
                 await send_registration_notification(
@@ -314,11 +344,11 @@ async def start(update: Update, context: CallbackContext) -> None:
                 welcome_message = f"Welcome to Gomida Games"
                 if user.username:
                     welcome_message += f", {user.username}"
-                welcome_message += "! 🎮\n\nNote: Some features might be limited due to server connection."
+                welcome_message += "! 🎮\n\nTap 📞 Share Contact below to send your phone automatically."
                 
                 await update.message.reply_text(
                     welcome_message,
-                    reply_markup=regular_menu_markup
+                    reply_markup=initial_menu_markup
                 )
                 try:
                     add_subscriber(user.id)
@@ -327,14 +357,14 @@ async def start(update: Update, context: CallbackContext) -> None:
                 
     except Exception as e:
         logger.error(f"❌ Error in start command for user {user.id}: {e}")
-        welcome_message = "Welcome to Gomida Games! 🎮\n\nThere was an issue connecting to our servers.\nYou can still use basic features."
+        welcome_message = "Welcome to Gomida Games! 🎮\n\nTap 📞 Share Contact below to send your phone automatically."
         
         await update.message.reply_text(
             welcome_message,
-            reply_markup=regular_menu_markup
+            reply_markup=initial_menu_markup
         )
 
-@require_silent_registration
+@require_contact_registration
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     logger.info(f"🛑 User {user_id} stopped the bot")
@@ -348,7 +378,7 @@ async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return ConversationHandler.END
 
-@require_silent_registration
+@require_contact_registration
 async def refresh(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Refresh user data from backend"""
     user = update.effective_user
@@ -381,14 +411,14 @@ async def refresh(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # New command for admins to test group notifications
-@require_silent_registration
+@require_contact_registration
 async def notify_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Test notification system in admin group"""
     user = update.effective_user
     admin_group_id = get_admin_group_id()
     
     if not admin_group_id:
-        await update.message.reply_text("❌ No admin group ID configured. Set ADMIN_GROUP_ID in .env")
+        await update.message.reply_text("❌ No admin group ID configured. Set ADMIN_GROUP_ID in .env, then try /notify again.")
         return
     
     # Create test user data with different scenarios
@@ -435,7 +465,8 @@ async def notify_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📱 Testing group notification system...\n"
         f"• Admin Group ID: {admin_group_id}\n"
         f"• Test user: @{user.username or 'No Username'}\n\n"
-        "Sending test notifications to admin group..."
+        "Sending test notifications to admin group.\n\n"
+        "If you want the normal broadcast flow, use /notify."
     )
     
     # Send test notifications
@@ -450,7 +481,7 @@ async def notify_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ All test notifications sent to admin group!")
 
 # Command to get group ID
-@require_silent_registration
+@require_contact_registration
 async def groupid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get the current group ID (useful for setting up admin group)"""
     chat = update.effective_chat
@@ -476,7 +507,7 @@ async def groupid(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # Command to get user ID
-@require_silent_registration
+@require_contact_registration
 async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show the user's Telegram ID"""
     user = update.effective_user
@@ -499,19 +530,19 @@ async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Notify conversation states
 WAITING_MESSAGE = 1
 
-@require_silent_registration
+@require_contact_registration
 async def notify_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     # Only allow specific username
     if not user.username or user.username.lower() != 'gomidasolutions':
-        await update.message.reply_text("❌ You are not authorized to use /notify.")
+        await update.message.reply_text("❌ You are not authorized to use /notify.\n\nIf you need broadcast access, ask the admin to run this command from the approved account.")
         return ConversationHandler.END
 
     context.user_data['notify_draft'] = {}
     await update.message.reply_text(
-        "✉️ Send the notification message you want to broadcast.\n"
-        "You may send plain text or send a photo with a caption.\n"
-        "Send /cancel to abort."
+        "✉️ Send the message you want to broadcast.\n\n"
+        "You can send plain text or a photo with a caption.\n"
+        "After that I will show a preview so you can confirm or cancel."
     )
     return WAITING_MESSAGE
 
@@ -536,15 +567,15 @@ async def notify_receive(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Send preview with buttons
     if draft['photo']:
-        await update.message.reply_photo(photo=draft['photo'], caption=f"Preview:\n\n{draft['text']}", reply_markup=keyboard)
+        await update.message.reply_photo(photo=draft['photo'], caption=f"Preview:\n\n{draft['text']}\n\nTap Yes to broadcast or No to cancel.", reply_markup=keyboard)
     else:
-        await update.message.reply_text(f"Preview:\n\n{draft['text']}", reply_markup=keyboard)
+        await update.message.reply_text(f"Preview:\n\n{draft['text']}\n\nTap Yes to broadcast or No to cancel.", reply_markup=keyboard)
 
     return ConversationHandler.END
 
-@require_silent_registration
+@require_contact_registration
 async def notify_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("❌ Notification cancelled.")
+    await update.message.reply_text("❌ Notification cancelled. Nothing was sent.")
     context.user_data.pop('notify_draft', None)
     return ConversationHandler.END
 
