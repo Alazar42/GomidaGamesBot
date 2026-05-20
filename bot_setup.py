@@ -23,11 +23,6 @@ print(f"✅ Bot token loaded: {BOT_TOKEN[:10]}...")
 # Create Telegram application
 application = Application.builder().token(BOT_TOKEN).build()
 
-# Add command handlers
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("stop", stop))
-application.add_handler(CommandHandler("refresh", refresh))
-
 # Conversation for admin /notify command
 notify_conv = ConversationHandler(
     entry_points=[CommandHandler("notify", notify_start)],
@@ -41,20 +36,25 @@ notify_conv = ConversationHandler(
 )
 application.add_handler(notify_conv)
 
-# Add conversation handler
+# Add conversation handler for /start
 conv_handler = ConversationHandler(
     entry_points=[CommandHandler("start", start)],
     states={},
     fallbacks=[CommandHandler("stop", stop)],
 )
-
 application.add_handler(conv_handler)
 
-# Add message handlers
-application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message_response))
-application.add_handler(MessageHandler(filters.CONTACT, handle_contact_shared))
+# Add command handlers
+application.add_handler(CommandHandler("stop", stop))
+application.add_handler(CommandHandler("refresh", refresh))
+application.add_handler(CommandHandler("notifytest", notify_test))
+
+# Add callback query handlers (specific patterns first)
 application.add_handler(CallbackQueryHandler(notify_confirm_callback, pattern=r"^notify_confirm_"))
 application.add_handler(CallbackQueryHandler(handle_callback_query))
-application.add_handler(CommandHandler("notifytest", notify_test))
+
+# Add message handlers (least specific - last)
+application.add_handler(MessageHandler(filters.CONTACT, handle_contact_shared))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message_response))
 
 print("✅ Gomida Games Bot setup complete!")

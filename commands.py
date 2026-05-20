@@ -584,7 +584,7 @@ async def notify_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
     await query.answer()
     data = query.data
     draft = context.user_data.get('notify_draft')
-    # Helper to safely edit either caption (for photo messages) or text
+    # Helper to safely update either a reply message or the original preview.
     async def _edit_message_safe(msg_obj, new_text: str, parse_mode: str = None):
         try:
             # Photo messages must use edit_message_caption
@@ -613,25 +613,26 @@ async def notify_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
         text = draft.get('text', '')
         photo = draft.get('photo')
         try:
-            # Show loading state immediately
+            # Show a visible loading state immediately.
             loading_msg = "⏳ Broadcasting to all subscribers...\n\n🔄 This may take a moment..."
-            await _edit_message_safe(query.message, loading_msg)
-            
+            loading_message = await query.message.reply_text(loading_msg)
+
             # Perform the broadcast
             sent = await broadcast_notification(bot=context.bot, text=text, photo_file_id=photo, parse_mode='Markdown')
             
             if sent == 0:
                 msg = (
-                    "⚠️ Notification sent to 0 subscribers.\n\n"
+                    "⚠️ Notification sent to 0 users.\n\n"
                     "This may happen because:\n"
                     "• Backend database is cold-starting (free tier)\n"
                     "• No users in the system yet\n\n"
                     "💡 Tip: Wait 30-60 seconds and try again."
                 )
             else:
-                msg = f"✅ Notification sent to {sent} subscribers."
-            await _edit_message_safe(query.message, msg)
+                msg = f"✅ Notification sent to {sent} users."
+            await _edit_message_safe(loading_message, msg)
         except Exception as e:
+            logger.exception("Notification broadcast failed")
             await _edit_message_safe(query.message, f"❌ Failed to broadcast: {e}")
         finally:
             context.user_data.pop('notify_draft', None)
