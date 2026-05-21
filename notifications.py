@@ -3,6 +3,13 @@ import os
 import logging
 from typing import List
 import json
+import asyncio
+import csv
+import re
+from io import StringIO
+
+import httpx
+
 from api_client import get_all_users
 
 logger = logging.getLogger(__name__)
@@ -39,8 +46,62 @@ def remove_subscriber(user_id: int):
 def get_subscribers() -> List[int]:
     return _load_subscribers()
 
-async def broadcast_notification(bot, text: str, photo_file_id: str = None, parse_mode: str = None):
-    """Send a message (and optional photo) to all subscribers."""
+def _extract_sheet_id(sheet_url: str) -> str:
+    match = re.search(r"/d/([a-zA-Z0-9-_]+)", sheet_url or "")
+    return match.group(1) if match else (sheet_url or "").strip()
+
+
+async def _fetch_sheet_users(sheet_url: str, gid: str = "0") -> List[int]:
+    sheet_id = _extract_sheet_id(sheet_url)
+    if not sheet_id:
+        return []
+
+    export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
+    if gid:
+        export_url += f"&gid={gid}"
+
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        response = await client.get(export_url)
+        response.raise_for_status()
+        csv_text = response.text
+
+    reader = csv.DictReader(StringIO(csv_text))
+    sheet_users: List[int] = []
+    for row in reader:
+        found = None
+        for key in row.keys():
+            if key and key.strip().lower() in ("telegram id", "telegram_id", "telegramid", "telegram", "id"):
+                found = row.get(key)
+                break
+        if not found:
+            for value in row.values():
+                if value and re.search(r"\d{5,}", str(value)):
+                    found = value
+                    break
+        if found:
+            digits = re.sub(r"[^0-9-]", "", str(found)).strip()
+            if digits:
+                try:
+                    sheet_users.append(int(digits))
+                except Exception:
+                    continue
+
+    return sorted(list(set(sheet_users)))
+
+
+async def broadcast_notification(
+    bot,
+    text: str,
+    photo_file_id: str = None,
+    parse_mode: str = None,
+    include_sheet_users: bool = False,
+    sheet_url: str | None = None,
+    sheet_gid: str = "0",
+):
+    """Send a message (and optional photo) to all subscribers.
+
+    When include_sheet_users is True, adds users from a Google Sheet export too.
+    """
     # Start with local subscribers and always augment with DB users.
     subs = set(_load_subscribers())
 
@@ -66,6 +127,19 @@ async def broadcast_notification(bot, text: str, photo_file_id: str = None, pars
             logger.info(f"ℹ️ Added {db_count} subscribers from main DB")
     except Exception as e:
         logger.exception(f"Failed to load users from API: {e}")
+
+    if include_sheet_users:
+        try:
+            if sheet_url:
+                sheet_users = await _fetch_sheet_users(sheet_url, sheet_gid)
+                sheet_count = 0
+                for user_id in sheet_users:
+                    if user_id not in subs:
+                        sheet_count += 1
+                    subs.add(user_id)
+                logger.info(f"ℹ️ Added {sheet_count} subscribers from spreadsheet")
+        except Exception as e:
+            logger.exception(f"Failed to load users from spreadsheet: {e}")
 
     if not subs:
         logger.info("ℹ️ No subscribers to broadcast to (checked DB and local subscribers)")

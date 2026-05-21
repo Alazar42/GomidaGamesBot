@@ -3,7 +3,7 @@ import os
 import logging
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ConversationHandler
 from dotenv import load_dotenv
-from commands import groupid, notify_test, start, stop, refresh, WAITING_MESSAGE, notify_start, notify_receive, notify_cancel, notify_confirm_callback
+from commands import groupid, notify_test, start, stop, refresh, WAITING_MESSAGE, notify_start, notifynew_start, notifyall_start, notify_receive, notify_cancel, notify_confirm_callback
 from callbacks import handle_message_response, handle_contact_shared, handle_callback_query
 
 logging.basicConfig(
@@ -25,7 +25,11 @@ application = Application.builder().token(BOT_TOKEN).build()
 
 # Conversation for admin /notify command
 notify_conv = ConversationHandler(
-    entry_points=[CommandHandler("notify", notify_start)],
+    entry_points=[
+        CommandHandler("notify", notify_start),
+        CommandHandler("notifynew", notifynew_start),
+        CommandHandler("notifyall", notifyall_start),
+    ],
     states={
         WAITING_MESSAGE: [
             # Accept text or photo

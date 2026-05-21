@@ -7,6 +7,7 @@ from api_client import create_user, get_user_by_tg_id, update_user
 from games import games
 from urllib.parse import quote
 from functools import wraps
+import asyncio
 import html
 import logging
 import os
@@ -530,17 +531,40 @@ async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Notify conversation states
 WAITING_MESSAGE = 1
 
+NOTIFY_SHEET_URL = os.getenv(
+    "NOTIFY_SHEET_URL",
+    "https://docs.google.com/spreadsheets/d/1he2mm_0zFquSuzEVNolKsxm7huZDUbY570qR5VYFk6M/edit?gid=0#gid=0",
+)
+NOTIFY_SHEET_GID = os.getenv("NOTIFY_SHEET_GID", "0")
+
 @require_contact_registration
 async def notify_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['notify_mode'] = 'new'
+    return await _notify_start_common(update, context, "DB users only")
+
+
+@require_contact_registration
+async def notifynew_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['notify_mode'] = 'new'
+    return await _notify_start_common(update, context, "DB users only")
+
+
+@require_contact_registration
+async def notifyall_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['notify_mode'] = 'all'
+    return await _notify_start_common(update, context, "DB users + spreadsheet users")
+
+
+async def _notify_start_common(update: Update, context: ContextTypes.DEFAULT_TYPE, target_label: str):
     user = update.effective_user
     # Only allow specific username
     if not user.username or user.username.lower() != 'gomidasolutions':
-        await update.message.reply_text("❌ You are not authorized to use /notify.\n\nIf you need broadcast access, ask the admin to run this command from the approved account.")
+        await update.message.reply_text("❌ You are not authorized to use this broadcast command.\n\nIf you need broadcast access, ask the admin to run it from the approved account.")
         return ConversationHandler.END
 
     context.user_data['notify_draft'] = {}
     await update.message.reply_text(
-        "✉️ Send the message you want to broadcast.\n\n"
+        f"✉️ Send the message you want to broadcast to {target_label}.\n\n"
         "You can send plain text or a photo with a caption.\n"
         "After that I will show a preview so you can confirm or cancel."
     )
@@ -548,7 +572,7 @@ async def notify_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def notify_receive(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Accept text or photo with caption
-    draft = {'text': '', 'photo': None}
+    draft = {'text': '', 'photo': None, 'mode': context.user_data.get('notify_mode', 'new')}
     if update.message.photo:
         # Get highest resolution
         file_id = update.message.photo[-1].file_id
@@ -612,27 +636,45 @@ async def notify_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
     if data == 'notify_confirm_yes':
         text = draft.get('text', '')
         photo = draft.get('photo')
+        notify_mode = draft.get('mode') or context.user_data.get('notify_mode', 'new')
         try:
             # Show a visible loading state immediately.
-            loading_msg = "⏳ Broadcasting to all subscribers...\n\n🔄 This may take a moment..."
+            loading_msg = "⏳ Broadcasting...\n\n🔄 This may take a moment..."
             loading_message = await query.message.reply_text(loading_msg)
 
-            # Perform the broadcast
-            sent = await broadcast_notification(bot=context.bot, text=text, photo_file_id=photo, parse_mode='Markdown')
-            
-            if sent == 0:
-                msg = (
-                    "⚠️ Notification sent to 0 users.\n\n"
-                    "This may happen because:\n"
-                    "• Backend database is cold-starting (free tier)\n"
-                    "• No users in the system yet\n\n"
-                    "💡 Tip: Wait 30-60 seconds and try again."
-                )
-            else:
-                msg = f"✅ Notification sent to {sent} users."
-            await _edit_message_safe(loading_message, msg)
+            async def _run_broadcast():
+                try:
+                    sent = await broadcast_notification(
+                        bot=context.bot,
+                        text=text,
+                        photo_file_id=photo,
+                        parse_mode='Markdown',
+                        include_sheet_users=(notify_mode == 'all'),
+                        sheet_url=NOTIFY_SHEET_URL if notify_mode == 'all' else None,
+                        sheet_gid=NOTIFY_SHEET_GID,
+                    )
+
+                    if sent == 0:
+                        msg = (
+                            "⚠️ Notification sent to 0 users.\n\n"
+                            "This may happen because:\n"
+                            "• Backend database is cold-starting (free tier)\n"
+                            "• No users in the system yet\n\n"
+                            "💡 Tip: Wait 30-60 seconds and try again."
+                        )
+                    else:
+                        msg = f"✅ Notification sent to {sent} users."
+                    await _edit_message_safe(loading_message, msg)
+                except Exception as broadcast_error:
+                    logger.exception("Notification broadcast failed")
+                    await _edit_message_safe(loading_message, f"❌ Failed to broadcast: {broadcast_error}")
+                finally:
+                    context.user_data.pop('notify_draft', None)
+                    context.user_data.pop('notify_mode', None)
+
+            asyncio.create_task(_run_broadcast())
         except Exception as e:
             logger.exception("Notification broadcast failed")
             await _edit_message_safe(query.message, f"❌ Failed to broadcast: {e}")
         finally:
-            context.user_data.pop('notify_draft', None)
+            pass
