@@ -19,7 +19,7 @@ games = [
         "title": "Penalty Shootout",
         "description": "Penalty Shootout game by Gomida",
         "short_name": "matchafrica",
-        "url": "https://penality-shootout-game-web-v26fin.vercel.app/",
+        "url": "https://penalityshootoutgame-2semat.vercel.app/",
         "button_text": "Play Penalty Shootout",
         "thumbnail_url": "https://pggctghkfeyhtkufbfca.supabase.co/storage/v1/object/public/public%20images/photo_2026-05-08_10-35-56.jpg"
     }
