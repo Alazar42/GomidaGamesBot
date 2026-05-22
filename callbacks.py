@@ -7,44 +7,61 @@ from urllib.parse import quote
 from buttons import unlocked_menu_markup, initial_menu_markup, regular_menu_markup
 from api_client import update_user, create_user, get_leaderboard
 import html
+import re
 
 # Constants for leaderboard pagination
 LEADERBOARD_PAGE_SIZE = 15  # Users per page (increased from 10)
 
+
+def _menu_prompt(context: CallbackContext):
+    if context.user_data.get('awaiting_contact', False):
+        return initial_menu_markup
+    return unlocked_menu_markup if _has_verified_phone(context) else initial_menu_markup
+
+
+def _has_verified_phone(context: CallbackContext):
+    api_user = context.user_data.get('api_user', {})
+    phone = str(api_user.get('phone') or '').strip()
+    return bool(phone)
+
+
+def _next_step_text(context: CallbackContext):
+    if _has_verified_phone(context):
+        return "Use the buttons below to continue."
+    return "Tap 📞 Share Contact below to send your phone automatically."
+
 async def handle_message_response(update: Update, context: CallbackContext):
     text = update.message.text
     user = update.effective_user
+
+    # Keep contact state synced with what's actually saved for the user.
+    if 'api_user' not in context.user_data:
+        from api_client import get_user_by_tg_id
+        existing_user = await get_user_by_tg_id(user.id)
+        if existing_user:
+            context.user_data['api_user'] = existing_user
+            context.user_data['contact_shared'] = bool(existing_user.get('phone'))
     
     # Check if we're in contact selection mode
     if text in ["📱 Select Contacts", "Cancel"]:
         await handle_contact_selection(update, context)
         return
-    
-    # Ensure user exists in context
-    if 'api_user' not in context.user_data:
-        # Try to get existing user or create new one
-        from api_client import get_user_by_tg_id, create_user
-        existing_user = await get_user_by_tg_id(user.id)
-        
-        if not existing_user:
-            # Create new user
-            user_data = {
-                "id": user.id,
-                "username": user.username or f"user_{user.id}",
-                "phone": "",
-                "score": 0,
-                "flags_level": 1,
-                "maps_level": 1,
-                "attires_level": 1,
-                "flags_stars": {},
-                "maps_stars": {},
-                "attires_stars": {}
-            }
-            existing_user = await create_user(user_data)
-        
-        if existing_user:
-            context.user_data['api_user'] = existing_user
-            context.user_data['contact_shared'] = bool(existing_user.get('phone'))
+
+    awaiting_contact = context.user_data.get('awaiting_contact', False)
+    if awaiting_contact or not _has_verified_phone(context):
+        context.user_data['awaiting_contact'] = True
+        if text and re.fullmatch(r"[+\d\s()\-]{6,}", text.strip()):
+            await update.message.reply_text(
+                "❌ Typing your number is not accepted here.\n\nPlease tap 📞 Share Contact so Telegram can send it securely.",
+                reply_markup=initial_menu_markup
+            )
+            return
+
+        await update.message.reply_text(
+            "📞 Please tap the Share Contact button below.\n\nYour phone number will be sent automatically.",
+            reply_markup=initial_menu_markup
+        )
+        return
     
     if text == "👤 Account":
         api_user = context.user_data.get('api_user', {})
@@ -84,60 +101,19 @@ async def handle_message_response(update: Update, context: CallbackContext):
         # Check if user has shared contact
         if not context.user_data.get('contact_shared', False):
             await update.message.reply_text(
-                "🎮 You can play games without sharing contact!\n"
-                "However, sharing contact unlocks additional features.",
+                "🎮 Please tap the Share Contact button below first.\n\n"
+                "Your phone number will be sent automatically, then you can open the games.",
                 reply_markup=regular_menu_markup
             )
+            return
         
-        # Pop any invite ref captured by /start ref_<inviter_id>. We forward it as a
-        # ?startapp= query param on the game URL so Unity's WebGL bridge can read it
-        # from window.location.search and call register_telegram_invite_open. Pop
-        # (not get) so the ref is one-shot per launch and doesn't keep crediting the
-        # inviter on every replay.
-        invite_ref = context.user_data.pop("invite_ref", None)
-
-        # be telegram miniapp yekeftewal instead of raw link
-        for game in games:
-            title = game.get("title") or game["name"]
-            description = game.get("description") or "Play now inside Telegram."
-            button_text = game.get("button_text") or f"Play {game['name']}"
-            thumbnail_url = (game.get("thumbnail_url") or "").strip()
-            caption = (
-                f"<b>{html.escape(title)}</b>\n"
-                f"{html.escape(description)}\n\n"
-                "Tap the button below to launch the game."
-            )
-
-            game_url = game["url"]
-            if invite_ref:
-                separator = "&" if "?" in game_url else "?"
-                game_url = f"{game_url}{separator}startapp={quote(invite_ref)}"
-
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton(
-                    button_text,
-                    web_app=WebAppInfo(url=game_url)
-                )]
-            ])
-
-            if thumbnail_url:
-                await update.message.reply_photo(
-                    photo=thumbnail_url,
-                    caption=caption,
-                    parse_mode="HTML",
-                    reply_markup=keyboard
-                )
-            else:
-                await update.message.reply_html(
-                    caption,
-                    reply_markup=keyboard
-                )
+        await send_games_cards(update.message, context)
     
     elif text == "✉️ Invite":
         # Jump directly to contact sharing
         await jump_to_contact_invite(update, context)
     
-    elif text == "👥🏅 Leaderboard":
+    elif text in ("🏆 Leaderboard", "👥🏅 Leaderboard", "👥🏅 Refferal Leaderboard"):
         # Start with page 1
         await show_leaderboard(update, context, page=1)
     
@@ -147,26 +123,12 @@ async def handle_message_response(update: Update, context: CallbackContext):
     elif text == "⚙️ Settings":
         await update.message.reply_text("Settings menu:\n1. Change username\n2. Change notifications\n3. Back")
     
-    elif text == "Skip Contact":
-        # User chooses not to share contact
-        context.user_data['contact_shared'] = False
-        await update.message.reply_text(
-            "✅ You can still play games! Share contact anytime to unlock additional features.",
-            reply_markup=regular_menu_markup
-        )
-    
     else:
         # If user sends any other text, show appropriate menu
-        if context.user_data.get('contact_shared', False):
-            await update.message.reply_text(
-                "What would you like to do?",
-                reply_markup=unlocked_menu_markup
-            )
-        else:
-            await update.message.reply_text(
-                "What would you like to do?",
-                reply_markup=regular_menu_markup
-            )
+        await update.message.reply_text(
+            f"I did not recognize that input.\n\n{_next_step_text(context)}",
+            reply_markup=_menu_prompt(context)
+        )
 
 async def show_leaderboard(update: Update, context: CallbackContext, page: int = 1):
     """Display paginated leaderboard from API"""
@@ -287,7 +249,8 @@ async def jump_to_contact_invite(update: Update, context: CallbackContext):
     
     await update.message.reply_text(
         "📤 <b>Invite Friends to Play!</b>\n\n"
-        "Tap the button below to select friends from your contacts and send them an invitation!\n\n"
+        "Tap the button below to open Telegram's share screen.\n"
+        "Pick friends, send the invite, and they will open the bot directly.\n\n"
         "🎁 <b>Bonus:</b> Earn extra points for each friend who joins!",
         parse_mode='HTML',
         reply_markup=reply_markup
@@ -303,7 +266,7 @@ async def request_invite_contacts(update: Update, context: CallbackContext):
     
     await update.message.reply_text(
         "📱 <b>Invite Friends</b>\n\n"
-        "Tap the button below to select friends from your contacts:",
+        "Tap the button below to open the share picker and send your invite:",
         parse_mode='HTML',
         reply_markup=reply_markup
     )
@@ -327,7 +290,7 @@ async def handle_contact_selection(update: Update, context: CallbackContext):
             f"👉 <a href='{share_url}'>Tap here to select friends</a>\n\n"
             f"<b>Message that will be sent:</b>\n"
             f"<code>{invitation_text}\n\n{bot_link}</code>\n\n"
-            f"🎮 <b>Earn bonus points for each friend who joins!</b>",
+            f"🎮 <b>After you send it, your friends can open the bot directly from the link.</b>",
             parse_mode='HTML',
             disable_web_page_preview=True
         )
@@ -359,6 +322,42 @@ async def handle_contact_selection(update: Update, context: CallbackContext):
 
 from commands import send_registration_notification
 
+
+async def send_games_cards(message, context: CallbackContext):
+    # Pop any invite ref captured by /start ref_<inviter_id>. We forward it as a
+    # ?startapp= query param on the game URL so Unity's WebGL bridge can read it.
+    invite_ref = context.user_data.pop("invite_ref", None)
+
+    for game in games:
+        title = game.get("title") or game["name"]
+        description = game.get("description") or "Play now inside Telegram."
+        button_text = game.get("button_text") or f"Play {game['name']}"
+        thumbnail_url = (game.get("thumbnail_url") or "").strip()
+        caption = (
+            f"<b>{html.escape(title)}</b>\n"
+            f"{html.escape(description)}\n\n"
+            "Tap the button below to launch the game."
+        )
+
+        game_url = game["url"]
+        if invite_ref:
+            separator = "&" if "?" in game_url else "?"
+            game_url = f"{game_url}{separator}startapp={quote(invite_ref)}"
+
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton(button_text, web_app=WebAppInfo(url=game_url))]
+        ])
+
+        if thumbnail_url:
+            await message.reply_photo(
+                photo=thumbnail_url,
+                caption=caption,
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+        else:
+            await message.reply_html(caption, reply_markup=keyboard)
+
 async def handle_contact_shared(update: Update, context: CallbackContext):
     """Handle when user shares their contact"""
     contact = update.message.contact
@@ -366,6 +365,7 @@ async def handle_contact_shared(update: Update, context: CallbackContext):
     
     # Update user data in context
     context.user_data['contact_shared'] = True
+    context.user_data['awaiting_contact'] = False
     context.user_data['user_phone'] = contact.phone_number
     
     # Update user in backend API
@@ -375,16 +375,7 @@ async def handle_contact_shared(update: Update, context: CallbackContext):
     update_data = {
         "id": user_id,
         "username": api_user.get('username') or user.username or f"user_{user.id}",
-        "first_name": user.first_name or "",
-        "last_name": user.last_name or "",
         "phone": contact.phone_number,
-        "score": api_user.get('score', 0),
-        "flags_level": api_user.get('flags_level', 1),
-        "maps_level": api_user.get('maps_level', 1),
-        "attires_level": api_user.get('attires_level', 1),
-        "flags_stars": api_user.get('flags_stars', {}),
-        "maps_stars": api_user.get('maps_stars', {}),
-        "attires_stars": api_user.get('attires_stars', {})
     }
     
     # Call API to update user
@@ -396,6 +387,8 @@ async def handle_contact_shared(update: Update, context: CallbackContext):
     else:
         # Fallback: use update_data if API failed
         context.user_data['api_user'] = update_data
+
+    context.user_data['contact_shared'] = bool(context.user_data['api_user'].get('phone'))
     
     # ✅ Send notification to admin group about contact update
     await send_registration_notification(
@@ -407,9 +400,12 @@ async def handle_contact_shared(update: Update, context: CallbackContext):
     await update.message.reply_text(
         f"✅ Thank you {contact.first_name}!\n\n"
         "Your contact has been saved successfully!\n"
-        "You now have access to all features!",
+        "You now have access to all features!\n\n"
+        "🎮 Games are ready. Tap Play below or use the game cards I sent next.",
         reply_markup=unlocked_menu_markup
     )
+
+    await send_games_cards(update.message, context)
 
 async def handle_callback_query(update: Update, context: CallbackContext):
     """Handle callback queries for games, leaderboard pagination, and back to menu"""
@@ -458,13 +454,6 @@ async def handle_callback_query(update: Update, context: CallbackContext):
                         "id": user.id,
                         "username": user.username or f"user_{user.id}",
                         "phone": "",
-                        "score": 0,
-                        "flags_level": 1,
-                        "maps_level": 1,
-                        "attires_level": 1,
-                        "flags_stars": {},
-                        "maps_stars": {},
-                        "attires_stars": {}
                     }
                     existing_user = await create_user(user_data)
                 

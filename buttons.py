@@ -7,7 +7,7 @@ regular_menu_keyboard = [
         KeyboardButton("👤 Account"), KeyboardButton("🎮 Play")
     ],
     [
-        KeyboardButton("✉️ Invite"), KeyboardButton("👥🏅 Refferal Leaderboard")
+        KeyboardButton("✉️ Invite"), KeyboardButton("🏆 Leaderboard")
     ],
     [
         KeyboardButton("📜Terms & Conditions"), KeyboardButton("⚙️ Settings")
@@ -27,7 +27,7 @@ unlocked_menu_keyboard = [
         KeyboardButton("👤 Account"), KeyboardButton("🎮 Play")
     ],
     [
-        KeyboardButton("✉️ Invite"), KeyboardButton("👥🏅 Leaderboard")
+        KeyboardButton("✉️ Invite"), KeyboardButton("🏆 Leaderboard")
     ],
     [
         KeyboardButton("📜Terms & Conditions"), KeyboardButton("⚙️ Settings")
