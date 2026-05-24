@@ -9,6 +9,7 @@ games = [
     #     "short_name": "climategame",
     #     "url": "https://climate-game-nu.vercel.app/"
     # },
+    
     # {
     #     "name": "Match Africa",
     #     "short_name": "matchafrica",
