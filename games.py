@@ -16,12 +16,12 @@ games = [
     #     "url": "https://match-africa-host.vercel.app/"
     # }
     {
-        "name": "Penalty Shootout Game",
-        "title": "Penalty Shootout",
-        "description": "Penalty Shootout game by Gomida",
-        "short_name": "matchafrica",
-        "url": "https://penality-new-link-3rdlink.vercel.app/",
-        "button_text": "Play Penalty Shootout",
-        "thumbnail_url": "https://pggctghkfeyhtkufbfca.supabase.co/storage/v1/object/public/public%20images/photo_2026-05-08_10-35-56.jpg"
+        "name": "Trivia Game",
+        "title": "Trivia Game",
+        "description": "Trivia game by Gomida",
+        "short_name": "triviagame",
+        "url": "https://trivia-sel-version1.vercel.app/",
+        "button_text": "Play Trivia Game",
+        "thumbnail_url": "https://msurtfuzyusoccxgnnul.supabase.co/storage/v1/object/public/trivia-assets/categories/backgrounds/Screenshot%202026-06-19%20164407.png"
     }
 ]
