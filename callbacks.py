@@ -357,12 +357,17 @@ async def send_games_cards(message, context: CallbackContext):
         ])
 
         if thumbnail_url:
-            await message.reply_photo(
-                photo=thumbnail_url,
-                caption=caption,
-                parse_mode="HTML",
-                reply_markup=keyboard
-            )
+            try:
+                await message.reply_photo(
+                    photo=thumbnail_url,
+                    caption=caption,
+                    parse_mode="HTML",
+                    reply_markup=keyboard
+                )
+            except Exception:
+                # If photo fails (wrong content type, redirect, timeout, etc.),
+                # fall back to sending the card without the image.
+                await message.reply_html(caption, reply_markup=keyboard)
         else:
             await message.reply_html(caption, reply_markup=keyboard)
 
