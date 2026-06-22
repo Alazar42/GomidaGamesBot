@@ -1,20 +1,31 @@
 games = [
-    # {
-    #     "name": "Level Up",
-    #     "short_name": "levelup",
-    #     "url": "https://cactus-chewata.web.app/"
-    # },
-    # {
-    #     "name":"Climate Game",
-    #     "short_name": "climategame",
-    #     "url": "https://climate-game-nu.vercel.app/"
-    # },
-    
-    # {
-    #     "name": "Match Africa",
-    #     "short_name": "matchafrica",
-    #     "url": "https://match-africa-host.vercel.app/"
-    # }
+    {
+        "name": "Level Up",
+        "title": "Level Up",
+        "description": "Level Up game by Gomida",
+        "short_name": "levelup",
+        "url": "https://cactus-chewata.web.app/",
+        "button_text": "Play Level Up",
+        "thumbnail_url": "https://i.ibb.co/YBL8B5gZ/image.png"
+    },
+    {
+        "name": "Climate Game",
+        "title": "Climate Game",
+        "description": "Climate Game by Gomida",
+        "short_name": "climategame",
+        "url": "https://climate-game-nu.vercel.app/",
+        "button_text": "Play Climate Game",
+        "thumbnail_url": "https://i.ibb.co/FGXxq5S/image.png"
+    },
+    {
+        "name": "Match Africa",
+        "title": "Match Africa",
+        "description": "Match Africa game by Gomida",
+        "short_name": "matchafrica",
+        "url": "https://match-africa-host.vercel.app/",
+        "button_text": "Play Match Africa",
+        "thumbnail_url": "https://i.ibb.co/WNMpQBKB/image.png"
+    },
     {
         "name": "Trivia Game",
         "title": "Trivia Game",

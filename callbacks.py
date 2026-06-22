@@ -327,6 +327,7 @@ async def send_games_cards(message, context: CallbackContext):
     # Pop any invite ref captured by /start ref_<inviter_id>. We forward it as a
     # ?startapp= query param on the game URL so Unity's WebGL bridge can read it.
     invite_ref = context.user_data.pop("invite_ref", None)
+    user_id = message.from_user.id  # Telegram user ID
 
     for game in games:
         title = game.get("title") or game["name"]
@@ -340,9 +341,16 @@ async def send_games_cards(message, context: CallbackContext):
         )
 
         game_url = game["url"]
+
+        # Add startapp parameter if invite_ref exists
         if invite_ref:
             separator = "&" if "?" in game_url else "?"
             game_url = f"{game_url}{separator}startapp={quote(invite_ref)}"
+
+        # If the game is matchafrica, add tg_user_id parameter
+        if game.get("short_name") == "matchafrica":
+            separator = "&" if "?" in game_url else "?"
+            game_url = f"{game_url}{separator}tg_user_id={user_id}"
 
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton(button_text, web_app=WebAppInfo(url=game_url))]
