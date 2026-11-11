@@ -28,41 +28,25 @@ async def lifespan(app: FastAPI):
     application = bot_app
     BOT_TOKEN = token
 
-    webhook_url = os.getenv("WEBHOOK_URL", "")
-    is_production = os.getenv("ENVIRONMENT", "development") == "production"
+    webhook_url = os.getenv("WEBHOOK_URL", "").strip()
+    if not webhook_url:
+        render_url = os.getenv("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+        if render_url:
+            webhook_url = f"{render_url}/webhook"
+    if not webhook_url:
+        raise RuntimeError("Set WEBHOOK_URL or run as a Render web service")
 
-    print(f"🔧 Environment: {os.getenv('ENVIRONMENT')}  Webhook: {webhook_url}")
-
-    if is_production and webhook_url:
-        try:
-            print("🔄 Removing old webhook...")
-            await application.bot.delete_webhook()
-
-            print("🔄 Setting new webhook...")
-            await application.bot.set_webhook(webhook_url)
-
-            info = await application.bot.get_webhook_info()
-            print(f"✅ Webhook set to: {info.url}")
-
-        except Exception as e:
-            print(f"❌ Webhook setup failed: {e}")
-
-    # 🔥 START THE BOT (THIS WAS MISSING)
-    print("🚀 Starting Telegram bot (webhook mode)...")
     await application.initialize()
-    await application.start()
-    print("✅ Bot is running and accepting updates!")
-
-    yield
-
-    # 🔥 CLEAN SHUTDOWN
-    print("🛑 Stopping bot gracefully...")
     try:
-        await application.stop()
+        await application.bot.set_webhook(webhook_url)
+        logger.info("Telegram webhook registered at %s", webhook_url)
+        await application.start()
+        try:
+            yield
+        finally:
+            await application.stop()
+    finally:
         await application.shutdown()
-        print("✅ Bot stopped cleanly")
-    except Exception as e:
-        print(f"❌ Error during shutdown: {e}")
 
 
 app = FastAPI(title="Gomida Games Bot", lifespan=lifespan)
@@ -122,16 +106,13 @@ async def info():
 
 # LOCAL DEVELOPMENT (polling)
 if __name__ == "__main__":
-    import os
     import uvicorn
 
-    os.environ["ENVIRONMENT"] = "development"
-    print("🚀 DEVELOPMENT MODE — USING POLLING (no webhook)")
-
-    # Import bot_setup manually (creates application)
-    from bot_setup import application as bot_app
-
-    # Start polling directly (no initialize(), no async)
-    bot_app.run_polling()
+    if os.getenv("RENDER_SERVICE_TYPE") == "web" or os.getenv("WEBHOOK_URL") or os.getenv("ENVIRONMENT") == "production":
+        uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "10000")))
+    else:
+        print("🚀 DEVELOPMENT MODE — USING POLLING (no webhook)")
+        from bot_setup import application as bot_app
+        bot_app.run_polling()
 
 

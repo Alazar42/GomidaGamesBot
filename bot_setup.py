@@ -11,6 +11,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 load_dotenv()
 
@@ -18,7 +19,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("❌ BOT_TOKEN environment variable is not set")
 
-print(f"✅ Bot token loaded: {BOT_TOKEN[:10]}...")
+print("✅ Bot token loaded")
 
 # Create Telegram application
 application = Application.builder().token(BOT_TOKEN).build()
