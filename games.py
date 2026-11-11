@@ -17,6 +17,33 @@ games = [
     #     "button_text": "Play Climate Game",
     #     "thumbnail_url": "https://i.ibb.co/FGXxq5S/image.png"
     # },
+    {
+        "name": "Saftey game",
+        "title": "Saftey game",
+        "description": "Learn and enjoy about saftey through our  game by Gomida",
+        "short_name": "safteygame",
+        "url": "https://climategame-t1.vercel.app/",
+        "button_text": "Play Saftey game",
+        "thumbnail_url": "https://dydnutcacccjzdgrxaav.supabase.co/storage/v1/object/public/Pics/Screenshot_20261111_094900_Telegram.jpg"
+    },
+    {
+        "name": "Filter game",
+        "title": "Filter game",
+        "description": "Filter game by Gomida",
+        "short_name": "Filtergame",
+        "url": "https://atdf-filter-game.vercel.app/",
+        "button_text": "Play Filter game",
+        "thumbnail_url": "https://dydnutcacccjzdgrxaav.supabase.co/storage/v1/object/public/Pics/IMG_20261111_095038_143.jpg"
+    },
+    {
+        "name": "Penalty Shootout Game",
+        "title": "Penalty Shootout",
+        "description": "Penalty Shootout game by Gomida",
+        "short_name": "matchafrica",
+        "url": "https://penality-new-link-3rdlink.vercel.app/",
+        "button_text": "Play Penalty Shootout",
+        "thumbnail_url": "https://dydnutcacccjzdgrxaav.supabase.co/storage/v1/object/public/Pics/Screenshot_20261111_102223_Telegram.jpg"
+    },
     # {
     #     "name": "Match Africa",
     #     "title": "Match Africa",
